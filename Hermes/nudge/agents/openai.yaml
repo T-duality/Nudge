@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nudge"
+  short_description: "Autonomous gentle check-ins via Hermes cron."
+  default_prompt: "Set up a Hermes cron-powered nudge that wakes only when due, decides whether to message, and schedules the next wake."
