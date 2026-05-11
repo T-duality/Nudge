@@ -37,6 +37,13 @@ DEFAULT_LANGUAGE = {
     "fallback": "en",
     "last_detected": None,
 }
+GATE_SILENT_REASONS = {
+    "disabled",
+    "initial_wake_scheduled",
+    "not_due",
+    "quiet_hours",
+    "recent_user_activity",
+}
 
 
 def expand_path(value: str | None) -> pathlib.Path:
@@ -258,6 +265,18 @@ def print_json(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def normalized_reason(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def is_stale_gate_silent_decision(args: argparse.Namespace, state: dict[str, Any]) -> bool:
+    if args.decision != "silent":
+        return False
+    if normalized_reason(args.reason) not in GATE_SILENT_REASONS:
+        return False
+    return state.get("last_decision") != "pending"
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     path = expand_path(args.state)
     state = load_state(path, create=True)
@@ -289,6 +308,15 @@ def cmd_set_next(args: argparse.Namespace) -> int:
 def cmd_record_decision(args: argparse.Namespace) -> int:
     path = expand_path(args.state)
     state = load_state(path, create=True)
+    if is_stale_gate_silent_decision(args, state):
+        print_json({
+            "ok": True,
+            "ignored": True,
+            "reason": args.reason,
+            "next_wake_at": state.get("next_wake_at"),
+            "path": str(path),
+        })
+        return 0
     next_at = resolve_next_at(args, state)
     state["last_decision"] = args.decision
     state["last_reason"] = args.reason

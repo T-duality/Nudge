@@ -1,6 +1,7 @@
 # OpenClaw Nudge
 
 OpenClaw 版 Nudge 使用固定 cron job 周期性唤醒 agent。agent 每次先运行本地 gate 脚本；如果未到真正唤醒时间，就回复 `HEARTBEAT_OK` 静默结束；如果到点，再决定是否发送一条短消息。
+gate 返回静默时不会再次写 state；只有真正到点并输出 `NUDGE_GATE_CONTEXT` 后，agent 才会记录本次决策和下一次唤醒时间。
 
 ## 安装并启用
 

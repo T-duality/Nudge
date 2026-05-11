@@ -56,10 +56,11 @@ def run_checked(cmd: list[str]) -> None:
 def build_prompt(gate_script: pathlib.Path, state_script: pathlib.Path) -> str:
     return (
         f"Use the nudge skill. First run: python3 {gate_script}. "
-        "If the gate output status is silent, final reply exactly HEARTBEAT_OK. "
-        "If the gate prints NUDGE_GATE_CONTEXT, decide whether to send one short proactive message. "
-        f"Before final reply, update state with python3 {state_script} record-decision. "
-        "If silent, final reply exactly HEARTBEAT_OK. If sending, final reply only the user-facing nudge."
+        "If the gate JSON has status silent, do not run any other command and final reply exactly HEARTBEAT_OK. "
+        "Only if the gate prints NUDGE_GATE_CONTEXT, decide whether to send one short proactive message. "
+        f"After a NUDGE_GATE_CONTEXT decision, update state with python3 {state_script} record-decision "
+        "--decision sent|silent --next-minutes <minutes>. "
+        "Then final reply exactly HEARTBEAT_OK for a due-but-silent decision, or only the user-facing nudge when sending."
     )
 
 

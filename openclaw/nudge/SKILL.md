@@ -27,13 +27,13 @@ OpenClaw cron does not have a Hermes-style pre-run script hook, so the cron job 
 On every cron wake:
 
 1. Run `python3 ~/.openclaw/nudge/scripts/nudge_gate.py`.
-2. If the gate output has `"status": "silent"`, final-answer exactly `HEARTBEAT_OK`.
+2. If the gate output has `"status": "silent"`, do not run `nudge_state.py record-decision`; final-answer exactly `HEARTBEAT_OK`.
 3. If the gate prints `NUDGE_GATE_CONTEXT`, decide whether to send one short proactive message.
 4. Before the final answer, run `nudge_state.py record-decision` to set the next wake time.
 5. If sending a nudge, final-answer only the user-facing message.
 6. If not sending, final-answer exactly `HEARTBEAT_OK`.
 
-OpenClaw strips and drops OK-only `HEARTBEAT_OK` messages, so this is the silent path.
+OpenClaw strips and drops OK-only `HEARTBEAT_OK` messages, so this is the silent path. Gate-silent ticks have already been handled by the gate and must not reschedule `next_wake_at`.
 
 ## Decision Rules
 
@@ -70,7 +70,7 @@ Treat the list as a set of inspirations. Do not force a message just to use a to
 
 ## Scheduling Rules
 
-After every due wake, choose the next wake time before replying:
+After every due wake that prints `NUDGE_GATE_CONTEXT`, choose the next wake time before replying:
 
 - No message sent: usually 45 minutes to 4 hours.
 - Message sent: usually 2 to 8 hours.
@@ -90,5 +90,6 @@ python3 ~/.openclaw/nudge/scripts/nudge_state.py record-decision --decision sent
 1. Do not create or edit unrelated OpenClaw cron jobs.
 2. Do not answer with explanations on silent ticks. Use exactly `HEARTBEAT_OK`.
 3. Do not leave `next_wake_at` unset after a due wake. The gate sets a fallback, but the agent should overwrite it with an intentional schedule.
-4. Do not rely on OpenClaw cron session memory alone. Use the state file.
-5. Do not store secrets or channel credentials in the nudge state file.
+4. Do not call `record-decision` after a gate-silent response such as `not_due`, `disabled`, `quiet_hours`, or `recent_user_activity`; that would keep pushing the real wake time forward.
+5. Do not rely on OpenClaw cron session memory alone. Use the state file.
+6. Do not store secrets or channel credentials in the nudge state file.

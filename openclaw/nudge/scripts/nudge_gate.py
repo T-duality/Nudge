@@ -149,7 +149,7 @@ def due_payload(state: dict[str, Any], path: pathlib.Path, now: dt.datetime, rea
         "instructions": [
             "Decide whether one short proactive message is worth sending now.",
             "Write the final user-facing nudge in language.target.",
-            "Before final reply, run nudge_state.py record-decision to set the next wake.",
+            "Because this gate printed NUDGE_GATE_CONTEXT, run nudge_state.py record-decision before the final reply to set the next wake.",
             "If silent, final reply must be exactly HEARTBEAT_OK.",
             "If sending, final reply should be only the user-facing nudge message.",
             "If topic_translation_available is false, translate the default topics into language.target before using them.",

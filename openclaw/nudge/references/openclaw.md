@@ -84,5 +84,6 @@ When not due, disabled, in quiet hours, or recently active, `nudge_gate.py` prin
 ```
 
 The agent must final-answer exactly `HEARTBEAT_OK`. OpenClaw drops OK-only `HEARTBEAT_OK` messages, making this the silent path.
+The agent must not run `nudge_state.py record-decision` for this gate-silent path; the gate has already decided not to wake, and rescheduling here would keep pushing `next_wake_at` forward.
 
 When due, the gate prints `NUDGE_GATE_CONTEXT` and a JSON payload. It also sets `next_wake_at` to a 30 minute fallback before the agent runs. The agent should overwrite that fallback with an intentional next wake using `nudge_state.py record-decision`.
