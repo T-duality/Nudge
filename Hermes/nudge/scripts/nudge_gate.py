@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import random
+import sqlite3
 import sys
 from typing import Any
 
@@ -56,15 +57,14 @@ def quiet_until(now: dt.datetime, state: dict[str, Any]) -> dt.datetime | None:
     return None
 
 
-def latest_activity_from_log(path: pathlib.Path, state: dict[str, Any]) -> tuple[dt.datetime | None, str | None]:
+def latest_activity_from_log(path: pathlib.Path, state: dict[str, Any]) -> dt.datetime | None:
     if not path.exists() or not path.is_file():
-        return None, None
+        return None
     latest: dt.datetime | None = None
-    latest_language: str | None = None
     try:
         lines = collections.deque(path.read_text(encoding="utf-8").splitlines(), maxlen=200)
     except OSError:
-        return None, None
+        return None
     for line in lines:
         try:
             item = json.loads(line)
@@ -84,14 +84,113 @@ def latest_activity_from_log(path: pathlib.Path, state: dict[str, Any]) -> tuple
             continue
         if latest is None or seen_at > latest:
             latest = seen_at
-            raw_text = item.get("text") or item.get("content") or item.get("message") or item.get("body")
-            latest_language = nudge_state.detect_language_from_text(str(raw_text)) if raw_text else None
-    return latest, latest_language
+    return latest
 
 
-def latest_activity(state: dict[str, Any], activity_log: str | None) -> tuple[dt.datetime | None, str | None]:
+def matching_session_ids_from_index(source: dict[str, Any]) -> list[str]:
+    sessions_path = source.get("sessions_path")
+    if not sessions_path:
+        return []
+    path = pathlib.Path(os.path.expanduser(str(sessions_path)))
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+
+    platform = str(source.get("platform") or "").strip()
+    chat_id = str(source.get("chat_id") or "").strip()
+    thread_id = str(source.get("thread_id") or "").strip()
+    user_id = str(source.get("user_id") or "").strip()
+    matches: list[str] = []
+    for raw_entry in data.values():
+        if not isinstance(raw_entry, dict):
+            continue
+        session_id = str(raw_entry.get("session_id") or "").strip()
+        if not session_id or session_id.startswith("cron_"):
+            continue
+        origin = raw_entry.get("origin")
+        origin = origin if isinstance(origin, dict) else {}
+        entry_platform = str(origin.get("platform") or raw_entry.get("platform") or "").strip()
+        if platform and entry_platform != platform:
+            continue
+        origin_chat_id = str(origin.get("chat_id") or "").strip()
+        origin_user_id = str(origin.get("user_id") or "").strip()
+        origin_thread_id = str(origin.get("thread_id") or "").strip()
+        if chat_id and chat_id not in {origin_chat_id, origin_user_id}:
+            continue
+        if thread_id and origin_thread_id != thread_id:
+            continue
+        if user_id and origin_user_id != user_id:
+            continue
+        matches.append(session_id)
+    return matches
+
+
+def latest_activity_from_hermes_state_db(state: dict[str, Any]) -> dt.datetime | None:
+    source = nudge_state.normalize_activity_source(state.get("activity_source"))
+    if not source.get("enabled") or source.get("type") != "hermes_state_db":
+        return None
+    db_raw = source.get("db_path")
+    if not db_raw:
+        return None
+    db_path = pathlib.Path(os.path.expanduser(str(db_raw))).resolve()
+    if not db_path.exists() or not db_path.is_file():
+        return None
+
+    platform = str(source.get("platform") or "").strip()
+    chat_id = str(source.get("chat_id") or "").strip()
+    user_id = str(source.get("user_id") or "").strip()
+    session_ids = matching_session_ids_from_index(source)
+    try:
+        conn = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True, timeout=1.0)
+    except sqlite3.Error:
+        return None
+    try:
+        conn.row_factory = sqlite3.Row
+        if session_ids:
+            placeholders = ",".join("?" for _ in session_ids)
+            query = (
+                "SELECT timestamp FROM messages "
+                f"WHERE role = 'user' AND session_id IN ({placeholders}) "
+                "ORDER BY timestamp DESC LIMIT 1"
+            )
+            params: list[str] = session_ids
+        else:
+            where = ["m.role = 'user'", "s.source != 'cron'"]
+            params = []
+            if platform:
+                where.append("s.source = ?")
+                params.append(platform)
+            user_filter = user_id or chat_id
+            if user_filter:
+                where.append("s.user_id = ?")
+                params.append(user_filter)
+            query = (
+                "SELECT m.timestamp FROM messages m "
+                "JOIN sessions s ON s.id = m.session_id "
+                f"WHERE {' AND '.join(where)} "
+                "ORDER BY m.timestamp DESC LIMIT 1"
+            )
+        row = conn.execute(query, params).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    if not row:
+        return None
+    try:
+        seen_at = dt.datetime.fromtimestamp(float(row["timestamp"]), dt.timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return None
+    return seen_at
+
+
+def latest_activity(state: dict[str, Any], activity_log: str | None) -> dt.datetime | None:
     candidates: list[dt.datetime] = []
-    detected_language: str | None = None
     raw = state.get("last_user_activity_at")
     if raw:
         try:
@@ -100,11 +199,13 @@ def latest_activity(state: dict[str, Any], activity_log: str | None) -> tuple[dt
             pass
     log_raw = activity_log or os.environ.get("NUDGE_ACTIVITY_LOG")
     if log_raw:
-        log_seen, log_language = latest_activity_from_log(pathlib.Path(os.path.expanduser(log_raw)), state)
+        log_seen = latest_activity_from_log(pathlib.Path(os.path.expanduser(log_raw)), state)
         if log_seen:
             candidates.append(log_seen)
-            detected_language = log_language
-    return (max(candidates) if candidates else None), detected_language
+    hermes_seen = latest_activity_from_hermes_state_db(state)
+    if hermes_seen:
+        candidates.append(hermes_seen)
+    return max(candidates) if candidates else None
 
 
 def print_silent(reason: str, state: dict[str, Any], path: pathlib.Path, extra: dict[str, Any] | None = None) -> None:
@@ -122,7 +223,7 @@ def print_silent(reason: str, state: dict[str, Any], path: pathlib.Path, extra: 
 
 def due_payload(state: dict[str, Any], path: pathlib.Path, now: dt.datetime, reason: str) -> dict[str, Any]:
     resolved_language = nudge_state.resolve_language(state)
-    topic_payload = nudge_state.topics_for_language(state, resolved_language)
+    topic_payload = nudge_state.topics_for_state(state)
     language_config = nudge_state.normalize_language(state.get("language"))
     return {
         "status": "due",
@@ -137,13 +238,9 @@ def due_payload(state: dict[str, Any], path: pathlib.Path, now: dt.datetime, rea
             "mode": language_config.get("mode"),
             "preferred": language_config.get("preferred"),
             "fallback": language_config.get("fallback"),
-            "last_detected": language_config.get("last_detected"),
         },
         "topics": topic_payload["topics"],
-        "topics_language": topic_payload["language"],
         "topics_source": topic_payload["source"],
-        "topics_translated": topic_payload["translated"],
-        "topic_translation_available": topic_payload["translation_available"],
         "quiet_hours": state.get("quiet_hours") or [],
         "instructions": [
             "Decide whether one short proactive message is worth sending now.",
@@ -151,7 +248,6 @@ def due_payload(state: dict[str, Any], path: pathlib.Path, now: dt.datetime, rea
             "Before the final response, run nudge_state.py record-decision to set the next wake.",
             "If silent, make the final response start with [SILENT].",
             "If sending, final response should be only the user-facing nudge message.",
-            "If topic_translation_available is false, translate the default topics into language.target before using them.",
         ],
     }
 
@@ -202,11 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             print_silent("not_due", state, path, {"now": nudge_state.iso(now)})
         return 0
 
-    recent_seen, detected_language = latest_activity(state, args.activity_log)
-    if detected_language:
-        language = nudge_state.normalize_language(state.get("language"))
-        language["last_detected"] = detected_language
-        state["language"] = language
+    recent_seen = latest_activity(state, args.activity_log)
     recent_seconds = int(state.get("recent_activity_seconds") or 300)
     if recent_seen and (now - recent_seen.astimezone(tz)).total_seconds() < recent_seconds:
         next_at = now + dt.timedelta(hours=1)

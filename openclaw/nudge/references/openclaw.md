@@ -16,6 +16,10 @@ This copies:
 - runtime scripts to `~/.openclaw/nudge/scripts`
 - initial state to `~/.openclaw/nudge/state.json`
 - a cron job named `nudge`; if one with that name already exists, the installer updates it with the current schedule, message, channel, tools, and session settings
+- an interactive delivery picker when a TTY is available and `--channel` is left as `auto`
+- interactive language and topic setup when a TTY is available
+
+After a cron create or update, the installer stores the selected delivery target in `~/.openclaw/nudge/state.json` as a read-only OpenClaw session activity source. The gate reads `~/.openclaw/agents/main/sessions/sessions.json`, finds matching non-cron session files, and uses only `message.role=user` timestamps for the recent-activity avoidance rule. Message content is not used.
 
 To install files without activating the background cron job:
 
@@ -33,12 +37,43 @@ The check reports target paths, whether the `openclaw` CLI is available, whether
 
 ## Delivery Target
 
-Default delivery uses `--channel last`, which asks OpenClaw to deliver alerts to the last usable chat route.
+Default `--channel auto` opens a numbered picker. The picker reads `openclaw channels status --json` and lists configured, active channels such as QQ Bot, OpenClaw Weixin, or Telegram. Explicit `--channel` values skip the picker.
+
+Non-interactive installs and `--no-delivery-prompt` use the first active channel returned by OpenClaw that does not require an extra target. If no such channel is found, they fall back to local/no-deliver.
+
+When a selected channel needs a fixed recipient and `--to` was not passed, the installer prompts for it. For QQ Bot, it first reads `~/.openclaw/qqbot/data/known-users.json` and offers recent known direct/group targets as a numbered menu; if none are available, it falls back to manual input. QQ Bot targets usually use `qqbot:c2c:<openid>` for direct messages or `qqbot:group:<groupid>` for groups.
+
+Interactive installs ask for language and topics. English and Simplified Chinese show bundled default topics and allow customization. Custom language has no bundled defaults and requires custom topics. Non-interactive installs leave existing language/topics unchanged unless `--language` or `--topic` is passed. Language is user-configured and is not inferred from recent activity.
 
 For a specific channel:
 
 ```bash
 python3 openclaw/nudge/scripts/install.py --force --channel telegram --to "<chat-id>"
+```
+
+For QQ Bot:
+
+```bash
+python3 openclaw/nudge/scripts/install.py --force --channel qqbot --to "qqbot:c2c:<openid>"
+python3 openclaw/nudge/scripts/install.py --force --channel qqbot --to "qqbot:group:<groupid>"
+```
+
+For OpenClaw Weixin:
+
+```bash
+python3 openclaw/nudge/scripts/install.py --force --channel openclaw-weixin
+```
+
+For a Telegram forum topic:
+
+```bash
+python3 openclaw/nudge/scripts/install.py --force --channel telegram --to "<chat-id>" --thread-id "<topic-id>"
+```
+
+For no chat delivery:
+
+```bash
+python3 openclaw/nudge/scripts/install.py --force --channel local
 ```
 
 For testing without creating cron:

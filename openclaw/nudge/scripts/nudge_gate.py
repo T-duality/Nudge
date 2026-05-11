@@ -56,15 +56,14 @@ def quiet_until(now: dt.datetime, state: dict[str, Any]) -> dt.datetime | None:
     return None
 
 
-def latest_activity_from_log(path: pathlib.Path, state: dict[str, Any]) -> tuple[dt.datetime | None, str | None]:
+def latest_activity_from_log(path: pathlib.Path, state: dict[str, Any]) -> dt.datetime | None:
     if not path.exists() or not path.is_file():
-        return None, None
+        return None
     latest: dt.datetime | None = None
-    latest_language: str | None = None
     try:
         lines = collections.deque(path.read_text(encoding="utf-8").splitlines(), maxlen=200)
     except OSError:
-        return None, None
+        return None
     for line in lines:
         try:
             item = json.loads(line)
@@ -78,33 +77,161 @@ def latest_activity_from_log(path: pathlib.Path, state: dict[str, Any]) -> tuple
         raw_time = item.get("created_at") or item.get("timestamp") or item.get("at")
         if not raw_time:
             continue
-        try:
-            seen_at = nudge_state.parse_time(str(raw_time), state)
-        except ValueError:
+        seen_at = parse_activity_time(raw_time, state)
+        if not seen_at:
             continue
         if latest is None or seen_at > latest:
             latest = seen_at
-            raw_text = item.get("text") or item.get("content") or item.get("message") or item.get("body")
-            latest_language = nudge_state.detect_language_from_text(str(raw_text)) if raw_text else None
-    return latest, latest_language
+    return latest
 
 
-def latest_activity(state: dict[str, Any], activity_log: str | None) -> tuple[dt.datetime | None, str | None]:
+def parse_activity_time(value: Any, state: dict[str, Any]) -> dt.datetime | None:
+    if isinstance(value, (int, float)):
+        seconds = float(value) / 1000 if value > 10_000_000_000 else float(value)
+        try:
+            return dt.datetime.fromtimestamp(seconds, dt.timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            return None
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return parse_activity_time(int(raw), state)
+    try:
+        return nudge_state.parse_time(raw, state)
+    except ValueError:
+        return None
+
+
+def normalize_target(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def session_matches_source(key: str, meta: dict[str, Any], source: dict[str, Any]) -> bool:
+    if ":cron:" in key:
+        return False
+    origin = meta.get("origin")
+    origin = origin if isinstance(origin, dict) else {}
+
+    channel = normalize_target(source.get("channel"))
+    if channel:
+        channels = {
+            normalize_target(meta.get("lastChannel")),
+            normalize_target(origin.get("provider")),
+            normalize_target(origin.get("surface")),
+        }
+        if channel not in channels:
+            return False
+
+    account = normalize_target(source.get("account"))
+    if account:
+        accounts = {
+            normalize_target(meta.get("lastAccountId")),
+            normalize_target(origin.get("accountId")),
+        }
+        if account not in accounts:
+            return False
+
+    target = normalize_target(source.get("to"))
+    if target:
+        targets = {
+            normalize_target(meta.get("lastTo")),
+            normalize_target(origin.get("from")),
+            normalize_target(origin.get("to")),
+            normalize_target(origin.get("label")),
+        }
+        if target not in targets:
+            return False
+
+    thread_id = normalize_target(source.get("thread_id"))
+    if thread_id:
+        threads = {
+            normalize_target(meta.get("threadId")),
+            normalize_target(meta.get("lastThreadId")),
+            normalize_target(origin.get("threadId")),
+            normalize_target(origin.get("thread_id")),
+        }
+        if thread_id not in threads:
+            return False
+
+    return bool(channel or account or target or thread_id)
+
+
+def latest_user_message_from_session_file(path: pathlib.Path, state: dict[str, Any]) -> dt.datetime | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        lines = collections.deque(path.read_text(encoding="utf-8").splitlines(), maxlen=400)
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        message = item.get("message")
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        seen_at = parse_activity_time(message.get("timestamp") or item.get("timestamp"), state)
+        if seen_at:
+            return seen_at
+    return None
+
+
+def latest_activity_from_openclaw_sessions(state: dict[str, Any]) -> dt.datetime | None:
+    source = nudge_state.normalize_activity_source(state.get("activity_source"))
+    if not source.get("enabled") or source.get("type") != "openclaw_sessions":
+        return None
+    raw_path = source.get("sessions_path")
+    if not raw_path:
+        return None
+    sessions_path = pathlib.Path(os.path.expanduser(str(raw_path))).resolve()
+    if not sessions_path.exists() or not sessions_path.is_file():
+        return None
+    try:
+        data = json.loads(sessions_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
     candidates: list[dt.datetime] = []
-    detected_language: str | None = None
+    base_dir = sessions_path.parent
+    for key, raw_meta in data.items():
+        if not isinstance(raw_meta, dict) or not session_matches_source(str(key), raw_meta, source):
+            continue
+        raw_session_file = raw_meta.get("sessionFile")
+        if not raw_session_file:
+            continue
+        session_file = pathlib.Path(os.path.expanduser(str(raw_session_file)))
+        if not session_file.is_absolute():
+            session_file = base_dir / session_file
+        seen_at = latest_user_message_from_session_file(session_file, state)
+        if seen_at:
+            candidates.append(seen_at)
+    return max(candidates) if candidates else None
+
+
+def latest_activity(state: dict[str, Any], activity_log: str | None) -> dt.datetime | None:
+    candidates: list[dt.datetime] = []
     raw = state.get("last_user_activity_at")
     if raw:
-        try:
-            candidates.append(nudge_state.parse_time(str(raw), state))
-        except ValueError:
-            pass
+        seen_at = parse_activity_time(raw, state)
+        if seen_at:
+            candidates.append(seen_at)
     log_raw = activity_log or os.environ.get("NUDGE_ACTIVITY_LOG")
     if log_raw:
-        log_seen, log_language = latest_activity_from_log(pathlib.Path(os.path.expanduser(log_raw)), state)
+        log_seen = latest_activity_from_log(pathlib.Path(os.path.expanduser(log_raw)), state)
         if log_seen:
             candidates.append(log_seen)
-            detected_language = log_language
-    return (max(candidates) if candidates else None), detected_language
+    session_seen = latest_activity_from_openclaw_sessions(state)
+    if session_seen:
+        candidates.append(session_seen)
+    return max(candidates) if candidates else None
 
 
 def print_silent(reason: str, state: dict[str, Any], path: pathlib.Path, extra: dict[str, Any] | None = None) -> None:
@@ -122,7 +249,7 @@ def print_silent(reason: str, state: dict[str, Any], path: pathlib.Path, extra: 
 
 def due_payload(state: dict[str, Any], path: pathlib.Path, now: dt.datetime, reason: str) -> dict[str, Any]:
     resolved_language = nudge_state.resolve_language(state)
-    topic_payload = nudge_state.topics_for_language(state, resolved_language)
+    topic_payload = nudge_state.topics_for_state(state)
     language_config = nudge_state.normalize_language(state.get("language"))
     return {
         "status": "due",
@@ -138,13 +265,9 @@ def due_payload(state: dict[str, Any], path: pathlib.Path, now: dt.datetime, rea
             "mode": language_config.get("mode"),
             "preferred": language_config.get("preferred"),
             "fallback": language_config.get("fallback"),
-            "last_detected": language_config.get("last_detected"),
         },
         "topics": topic_payload["topics"],
-        "topics_language": topic_payload["language"],
         "topics_source": topic_payload["source"],
-        "topics_translated": topic_payload["translated"],
-        "topic_translation_available": topic_payload["translation_available"],
         "quiet_hours": state.get("quiet_hours") or [],
         "instructions": [
             "Decide whether one short proactive message is worth sending now.",
@@ -152,7 +275,6 @@ def due_payload(state: dict[str, Any], path: pathlib.Path, now: dt.datetime, rea
             "Because this gate printed NUDGE_GATE_CONTEXT, run nudge_state.py record-decision before the final reply to set the next wake.",
             "If silent, final reply must be exactly HEARTBEAT_OK.",
             "If sending, final reply should be only the user-facing nudge message.",
-            "If topic_translation_available is false, translate the default topics into language.target before using them.",
         ],
     }
 
@@ -194,11 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         print_silent("not_due", state, path, {"now": nudge_state.iso(now)})
         return 0
 
-    recent_seen, detected_language = latest_activity(state, args.activity_log)
-    if detected_language:
-        language = nudge_state.normalize_language(state.get("language"))
-        language["last_detected"] = detected_language
-        state["language"] = language
+    recent_seen = latest_activity(state, args.activity_log)
     recent_seconds = int(state.get("recent_activity_seconds") or 300)
     if recent_seen and (now - recent_seen.astimezone(tz)).total_seconds() < recent_seconds:
         next_at = now + dt.timedelta(hours=1)

@@ -71,25 +71,23 @@ Default language is English. Use the language object in state:
 {
   "mode": "auto",
   "preferred": null,
-  "fallback": "en",
-  "last_detected": null
+  "fallback": "en"
 }
 ```
 
 Resolve output language in this order:
 
 1. `preferred`, when set.
-2. `last_detected`, when `mode` is `auto`.
-3. `fallback`, defaulting to `en`.
+2. `fallback`, defaulting to `en`.
 
-When the resolved language is not English and the user is still using the default topic list, the gate should inject a translated topic list for the resolved language. If no translation table exists, translate the default topics into `language.target` before using them and keep the final nudge in `language.target`.
+Language is configured by the user or installer; do not infer or change it from recent activity. Keep the final nudge in `language.target`. Use topics exactly as stored in state; language does not rewrite the topic list at runtime.
 
 ## Default Topic List
 
 Use these defaults when the user's state file does not already define `topics`:
 
 - A gentle follow-up, care note, or light question based on recent chat history
-- A short note or web-informed digest based on topics the user likes
+- News, progress, or trend updates about topics the user likes (web search may be used)
 - A poem, literary quote, or short excerpt related to a recent conversation topic
 - A completely random signal
 

@@ -16,26 +16,20 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 DEFAULT_STATE_PATH = "~/.openclaw/nudge/state.json"
 DEFAULT_TOPICS = [
     "A gentle follow-up, care note, or light question based on recent chat history",
-    "A short note or web-informed digest based on topics the user likes",
+    "News, progress, or trend updates about topics the user likes (web search may be used)",
     "A poem, literary quote, or short excerpt related to a recent conversation topic",
     "A completely random signal",
 ]
 DEFAULT_TOPICS_ZH = [
     "基于最近聊天记录的提醒、关心或轻轻追问",
-    "基于用户喜欢主题的短消息或搜索整理",
+    "关于用户喜欢主题的新闻、进展、动向（可用网络搜索）",
     "和最近对话主题相关的诗词、名著摘句",
     "完全随机电波",
 ]
-DEFAULT_TOPIC_TRANSLATIONS = {
-    "zh": DEFAULT_TOPICS_ZH,
-    "zh-CN": DEFAULT_TOPICS_ZH,
-    "zh-Hans": DEFAULT_TOPICS_ZH,
-}
 DEFAULT_LANGUAGE = {
     "mode": "auto",
     "preferred": None,
     "fallback": "en",
-    "last_detected": None,
 }
 GATE_SILENT_REASONS = {
     "disabled",
@@ -48,6 +42,23 @@ GATE_SILENT_REASONS = {
 
 def expand_path(value: str | None) -> pathlib.Path:
     return pathlib.Path(os.path.expanduser(value or os.environ.get("NUDGE_STATE", DEFAULT_STATE_PATH))).resolve()
+
+
+def openclaw_home() -> pathlib.Path:
+    return pathlib.Path(os.path.expanduser(os.environ.get("OPENCLAW_HOME", "~/.openclaw"))).resolve()
+
+
+def default_activity_source() -> dict[str, Any]:
+    home = openclaw_home()
+    return {
+        "enabled": False,
+        "type": "none",
+        "channel": None,
+        "to": None,
+        "account": None,
+        "thread_id": None,
+        "sessions_path": str(home / "agents" / "main" / "sessions" / "sessions.json"),
+    }
 
 
 def local_tz() -> dt.tzinfo:
@@ -83,70 +94,62 @@ def iso(value: dt.datetime) -> str:
     return value.replace(microsecond=0).isoformat()
 
 
-def normalize_language_code(value: Any) -> str | None:
+def canonical_bundled_language(value: Any) -> str | None:
     if value is None:
         return None
-    code = str(value).strip()
-    if not code:
+    raw = str(value).strip()
+    if not raw:
         return None
-    parts = code.replace("_", "-").split("-")
-    if len(parts) == 1:
-        return parts[0].lower()
-    return "-".join([parts[0].lower(), *[part.upper() if len(part) == 2 else part.title() for part in parts[1:]]])
-
-
-def is_english_language(value: Any) -> bool:
-    code = normalize_language_code(value)
-    return bool(code and code.split("-", 1)[0] == "en")
-
-
-def detect_language_from_text(text: str | None) -> str | None:
-    if not text:
-        return None
-    cjk = 0
-    latin = 0
-    for char in text:
-        point = ord(char)
-        if 0x4E00 <= point <= 0x9FFF:
-            cjk += 1
-        elif ("A" <= char <= "Z") or ("a" <= char <= "z"):
-            latin += 1
-    if cjk:
-        return "zh-CN"
-    if latin:
+    folded = raw.casefold().replace("_", "-")
+    if folded in {"en", "en-us", "en-gb", "english"}:
         return "en"
+    if folded in {"zh", "zh-cn", "zh-hans", "chinese", "simplified chinese", "mandarin", "中文", "汉语", "简体中文"}:
+        return "zh-CN"
     return None
+
+
+def normalize_language_name(value: Any) -> str | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    return canonical_bundled_language(raw) or raw
 
 
 def normalize_language(value: Any) -> dict[str, Any]:
     language = dict(DEFAULT_LANGUAGE)
     if isinstance(value, dict):
-        language.update(value)
+        for key in DEFAULT_LANGUAGE:
+            if key in value:
+                language[key] = value[key]
     mode = str(language.get("mode") or "auto").strip().lower()
     language["mode"] = mode if mode in {"auto", "fixed"} else "auto"
-    language["preferred"] = normalize_language_code(language.get("preferred"))
-    language["fallback"] = normalize_language_code(language.get("fallback")) or "en"
-    language["last_detected"] = normalize_language_code(language.get("last_detected"))
+    language["preferred"] = normalize_language_name(language.get("preferred"))
+    language["fallback"] = normalize_language_name(language.get("fallback")) or "en"
     return language
+
+
+def normalize_activity_source(value: Any) -> dict[str, Any]:
+    source = default_activity_source()
+    if isinstance(value, dict):
+        source.update(value)
+    source["enabled"] = bool(source.get("enabled"))
+    raw_type = str(source.get("type") or "none").strip().lower()
+    source["type"] = raw_type if raw_type in {"none", "openclaw_sessions"} else "none"
+    for key in ("channel", "to", "account", "thread_id", "sessions_path"):
+        raw = source.get(key)
+        source[key] = str(raw).strip() if raw is not None and str(raw).strip() else None
+    if source["type"] == "none":
+        source["enabled"] = False
+    return source
 
 
 def resolve_language(state: dict[str, Any]) -> str:
     language = normalize_language(state.get("language"))
     if language.get("preferred"):
         return str(language["preferred"])
-    if language.get("mode") == "auto" and language.get("last_detected"):
-        return str(language["last_detected"])
     return str(language.get("fallback") or "en")
-
-
-def default_topic_translations(value: Any) -> dict[str, list[str]]:
-    translations = {key: list(items) for key, items in DEFAULT_TOPIC_TRANSLATIONS.items()}
-    if isinstance(value, dict):
-        for raw_key, raw_items in value.items():
-            key = normalize_language_code(raw_key)
-            if key and isinstance(raw_items, list) and all(isinstance(item, str) for item in raw_items):
-                translations[key] = list(raw_items)
-    return translations
 
 
 def topics_are_default(topics: Any) -> bool:
@@ -154,22 +157,9 @@ def topics_are_default(topics: Any) -> bool:
     return items == DEFAULT_TOPICS
 
 
-def topics_for_language(state: dict[str, Any], language_code: str | None = None) -> dict[str, Any]:
+def topics_for_state(state: dict[str, Any]) -> dict[str, Any]:
     topics = list(state.get("topics") or DEFAULT_TOPICS)
-    target = normalize_language_code(language_code) or resolve_language(state)
-    if not topics_are_default(topics):
-        return {"topics": topics, "language": target, "source": "user_state", "translated": False, "translation_available": None}
-    if is_english_language(target):
-        return {"topics": list(DEFAULT_TOPICS), "language": target, "source": "default", "translated": False, "translation_available": True}
-    translations = default_topic_translations(state.get("topic_translations"))
-    translated = translations.get(target) or translations.get(target.split("-", 1)[0])
-    return {
-        "topics": list(translated or DEFAULT_TOPICS),
-        "language": target,
-        "source": "default_translated" if translated else "default_untranslated",
-        "translated": bool(translated),
-        "translation_available": bool(translated),
-    }
+    return {"topics": topics, "source": "default" if topics_are_default(topics) else "user_state"}
 
 
 def default_state() -> dict[str, Any]:
@@ -192,8 +182,8 @@ def default_state() -> dict[str, Any]:
         "initial_wake_max_minutes": 180,
         "quiet_hours": [{"start": "23:00", "end": "08:00"}],
         "language": dict(DEFAULT_LANGUAGE),
+        "activity_source": default_activity_source(),
         "topics": list(DEFAULT_TOPICS),
-        "topic_translations": {key: list(items) for key, items in DEFAULT_TOPIC_TRANSLATIONS.items()},
         "history": [],
         "max_history": 50,
     }
@@ -204,7 +194,8 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(merged.get("topics"), list):
         merged["topics"] = list(DEFAULT_TOPICS)
     merged["language"] = normalize_language(merged.get("language"))
-    merged["topic_translations"] = default_topic_translations(merged.get("topic_translations"))
+    merged["activity_source"] = normalize_activity_source(merged.get("activity_source"))
+    merged.pop("topic_translations", None)
     if not isinstance(merged.get("quiet_hours"), list):
         merged["quiet_hours"] = []
     if not isinstance(merged.get("history"), list):
@@ -334,15 +325,10 @@ def cmd_mark_activity(args: argparse.Namespace) -> int:
     path = expand_path(args.state)
     state = load_state(path, create=True)
     activity_at = iso(parse_time(args.at, state)) if args.at else now_iso(state)
-    detected_language = detect_language_from_text(args.text)
-    if detected_language:
-        language = normalize_language(state.get("language"))
-        language["last_detected"] = detected_language
-        state["language"] = language
     state["last_user_activity_at"] = activity_at
-    append_history(state, "user_activity", at_recorded=activity_at, source=args.source, detected_language=detected_language)
+    append_history(state, "user_activity", at_recorded=activity_at, source=args.source)
     save_state(path, state)
-    print_json({"ok": True, "last_user_activity_at": activity_at, "detected_language": detected_language, "path": str(path)})
+    print_json({"ok": True, "last_user_activity_at": activity_at, "path": str(path)})
     return 0
 
 
@@ -357,23 +343,18 @@ def cmd_language(args: argparse.Namespace) -> int:
         language["mode"] = "auto"
         language["preferred"] = None
         if args.value:
-            language["fallback"] = normalize_language_code(args.value) or "en"
+            language["fallback"] = normalize_language_name(args.value) or "en"
         event = "language_auto"
     elif args.language_action == "set":
         if not args.value:
-            raise ValueError("language set requires a language code")
+            raise ValueError("language set requires a language")
         language["mode"] = "fixed"
-        language["preferred"] = normalize_language_code(args.value)
+        language["preferred"] = normalize_language_name(args.value)
         event = "language_set"
-    elif args.language_action == "detected":
-        if not args.value:
-            raise ValueError("language detected requires a language code")
-        language["last_detected"] = normalize_language_code(args.value)
-        event = "language_detected"
     elif args.language_action == "fallback":
         if not args.value:
-            raise ValueError("language fallback requires a language code")
-        language["fallback"] = normalize_language_code(args.value) or "en"
+            raise ValueError("language fallback requires a language")
+        language["fallback"] = normalize_language_name(args.value) or "en"
         event = "language_fallback"
     else:
         raise ValueError(f"unsupported language action: {args.language_action}")
@@ -388,26 +369,69 @@ def cmd_topic(args: argparse.Namespace) -> int:
     path = expand_path(args.state)
     state = load_state(path, create=True)
     topics = list(state.get("topics") or [])
+    values = list(args.values or [])
     if args.topic_action == "list":
         print_json({"topics": topics})
         return 0
     if args.topic_action == "add":
-        if not args.value:
-            raise ValueError("topic add requires a value")
-        if args.value not in topics:
-            topics.append(args.value)
+        if len(values) != 1:
+            raise ValueError("topic add requires exactly one value")
+        if values[0] not in topics:
+            topics.append(values[0])
         event = "topic_add"
     elif args.topic_action == "remove":
-        if not args.value:
-            raise ValueError("topic remove requires a value")
-        topics = [item for item in topics if item != args.value]
+        if len(values) != 1:
+            raise ValueError("topic remove requires exactly one value")
+        topics = [item for item in topics if item != values[0]]
         event = "topic_remove"
+    elif args.topic_action == "set":
+        if not values:
+            raise ValueError("topic set requires at least one value")
+        topics = values
+        event = "topic_set"
+    elif args.topic_action == "reset":
+        topics = list(DEFAULT_TOPICS)
+        event = "topic_reset"
     else:
         raise ValueError(f"unsupported topic action: {args.topic_action}")
     state["topics"] = topics
-    append_history(state, event, topic=args.value)
+    append_history(state, event, topics=topics)
     save_state(path, state)
     print_json({"ok": True, "topics": topics, "path": str(path)})
+    return 0
+
+
+def cmd_activity_source(args: argparse.Namespace) -> int:
+    path = expand_path(args.state)
+    state = load_state(path, create=True)
+    source = normalize_activity_source(state.get("activity_source"))
+    if args.activity_source_action == "show":
+        print_json({"activity_source": source})
+        return 0
+    if args.activity_source_action == "disable":
+        source["enabled"] = False
+        source["type"] = "none"
+        event = "activity_source_disable"
+    elif args.activity_source_action == "openclaw-sessions":
+        source["enabled"] = True
+        source["type"] = "openclaw_sessions"
+        for key in ("channel", "to", "account", "thread_id", "sessions_path"):
+            value = getattr(args, key)
+            if value is not None:
+                source[key] = str(value).strip() or None
+        event = "activity_source_openclaw_sessions"
+    else:
+        raise ValueError(f"unsupported activity source action: {args.activity_source_action}")
+    state["activity_source"] = normalize_activity_source(source)
+    append_history(
+        state,
+        event,
+        channel=state["activity_source"].get("channel"),
+        to=state["activity_source"].get("to"),
+        account=state["activity_source"].get("account"),
+    )
+    save_state(path, state)
+    print_json({"ok": True, "activity_source": state["activity_source"], "path": str(path)})
     return 0
 
 
@@ -442,17 +466,26 @@ def build_parser() -> argparse.ArgumentParser:
     activity = sub.add_parser("mark-activity")
     activity.add_argument("--at")
     activity.add_argument("--source", default="manual")
-    activity.add_argument("--text")
+    activity.add_argument("--text", help="Ignored. Kept so old activity hooks do not fail.")
     activity.set_defaults(func=cmd_mark_activity)
 
+    activity_source = sub.add_parser("activity-source")
+    activity_source.add_argument("activity_source_action", choices=["show", "disable", "openclaw-sessions"])
+    activity_source.add_argument("--channel")
+    activity_source.add_argument("--to")
+    activity_source.add_argument("--account")
+    activity_source.add_argument("--thread-id")
+    activity_source.add_argument("--sessions-path")
+    activity_source.set_defaults(func=cmd_activity_source)
+
     language = sub.add_parser("language")
-    language.add_argument("language_action", choices=["show", "set", "auto", "detected", "fallback"])
+    language.add_argument("language_action", choices=["show", "set", "auto", "fallback"])
     language.add_argument("value", nargs="?")
     language.set_defaults(func=cmd_language)
 
     topic = sub.add_parser("topic")
-    topic.add_argument("topic_action", choices=["list", "add", "remove"])
-    topic.add_argument("value", nargs="?")
+    topic.add_argument("topic_action", choices=["list", "add", "remove", "set", "reset"])
+    topic.add_argument("values", nargs="*")
     topic.set_defaults(func=cmd_topic)
     return parser
 

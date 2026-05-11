@@ -17,6 +17,7 @@ This copies:
 - initial state to `~/.hermes/nudge/state.json`
 - a Hermes cron job named `nudge`; if one with that name already exists, the installer updates it with the current schedule, prompt, delivery target, skill, script, and workdir
 - an interactive delivery picker when a TTY is available and `--deliver` is left as `auto`
+- interactive language and topic setup when a TTY is available
 
 To install files without activating the background cron job:
 
@@ -31,6 +32,10 @@ Default `--deliver auto` opens a numbered picker based on `~/.hermes/channel_dir
 Non-interactive installs fall back to `local`.
 
 Repeated installs update the existing `nudge` cron job by default. Use `--no-update-cron` to leave an existing job unchanged, or pass a different `--name` to create another job.
+
+After a cron create or update, the installer stores the selected delivery target in `~/.hermes/nudge/state.json` as a read-only Hermes activity source. The gate then reads `~/.hermes/state.db` to find recent `role=user` messages for the same platform/chat and applies `recent_activity_seconds` before waking the agent. `--no-create-cron` and `--no-update-cron` do not change that activity source.
+
+Interactive installs ask for language and topics. English and Simplified Chinese show bundled default topics and allow customization. Custom language has no bundled defaults and requires custom topics. Non-interactive installs leave existing language/topics unchanged unless `--language` or `--topic` is passed. Language is user-configured and is not inferred from recent activity.
 
 For local file delivery:
 
@@ -100,7 +105,7 @@ Force Chinese output for testing:
 python3 Hermes/nudge/scripts/nudge_state.py --state /tmp/nudge/state.json language set zh-CN
 ```
 
-Return to automatic language selection with English fallback:
+Return to the default English fallback:
 
 ```bash
 python3 Hermes/nudge/scripts/nudge_state.py --state /tmp/nudge/state.json language auto en
@@ -118,4 +123,4 @@ Hermes treats this as a silent tick.
 
 When due, the gate prints `NUDGE_GATE_CONTEXT` and a JSON payload. It also sets `next_wake_at` to a 30 minute fallback before the agent runs. The agent should overwrite that fallback with an intentional next wake using `nudge_state.py record-decision`.
 
-The due payload includes `language.target`. Default language is English. If `language.target` is not English and the state still uses the default topic list, the gate injects a translated default topic list when a translation table is available.
+The due payload includes `language.target`. Default language is English. Topics are read exactly from state; the gate does not rewrite or translate the topic list at runtime.
