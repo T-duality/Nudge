@@ -19,7 +19,7 @@ This copies:
 - an interactive delivery picker when a TTY is available and `--channel` is left as `auto`
 - interactive language and topic setup when a TTY is available
 
-After a cron create or update, the installer stores the selected delivery target in `~/.openclaw/nudge/state.json` as a read-only OpenClaw session activity source. The gate reads `~/.openclaw/agents/main/sessions/sessions.json`, finds matching non-cron session files, and uses only `message.role=user` timestamps for the recent-activity avoidance rule. Message content is not used.
+After a cron create or update, the installer stores the selected delivery target in `~/.openclaw/nudge/state.json` as the OpenClaw session activity source. The gate reads `~/.openclaw/agents/main/sessions/sessions.json`, finds matching non-cron session files, and uses only `message.role=user` timestamps for the recent-activity avoidance rule. Message content is not used for recent-activity checks. When a nudge is sent, `record-decision --decision sent --message ...` also mirrors that nudge into the matching non-cron chat transcript through OpenClaw's transcript append API as a context-visible assistant message, then refreshes the session index freshness fields so the next reply has context. Do not use OpenClaw's `delivery-mirror` or `gateway-injected` model markers for this mirror; the runtime removes those transcript-only messages from replay history.
 
 To install files without activating the background cron job:
 

@@ -70,7 +70,9 @@ The gate can read user activity from three places:
 - OpenClaw session files, when `activity_source.type` is `openclaw_sessions`
 - a JSONL file through `--activity-log` or `NUDGE_ACTIVITY_LOG`
 
-The OpenClaw session source is read-only. It reads `sessions.json`, filters out cron sessions, matches the configured channel/target/account, then reads the matching session JSONL for the latest `type=message` event whose nested `message.role` is `user`. It uses only timestamps and does not use message content.
+For recent-activity avoidance, the OpenClaw session source is read-only. It reads `sessions.json`, filters out cron sessions, matches the configured channel/target/account, then reads the matching session JSONL for the latest `type=message` event whose nested `message.role` is `user`. It uses only timestamps and does not use message content.
+
+For sent nudges, `record-decision --decision sent --message ...` also best-effort mirrors the nudge into the matching non-cron OpenClaw chat transcript using OpenClaw's transcript append API. This writes a context-visible assistant message, then refreshes the session index freshness fields (`updatedAt`, `lastInteractionAt`, and daily-reset `sessionStartedAt` when needed) so the next user reply stays on that session and can see the nudge in context. Do not mark this mirror as OpenClaw's `delivery-mirror` or `gateway-injected` model; OpenClaw treats those models as transcript-only and removes them from replay history.
 
 Each line may look like:
 

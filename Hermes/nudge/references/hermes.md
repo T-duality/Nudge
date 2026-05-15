@@ -33,7 +33,7 @@ Non-interactive installs fall back to `local`.
 
 Repeated installs update the existing `nudge` cron job by default. Use `--no-update-cron` to leave an existing job unchanged, or pass a different `--name` to create another job.
 
-After a cron create or update, the installer stores the selected delivery target in `~/.hermes/nudge/state.json` as a read-only Hermes activity source. The gate then reads `~/.hermes/state.db` to find recent `role=user` messages for the same platform/chat and applies `recent_activity_seconds` before waking the agent. `--no-create-cron` and `--no-update-cron` do not change that activity source.
+After a cron create or update, the installer stores the selected delivery target in `~/.hermes/nudge/state.json` as the Hermes activity source. The gate then reads `~/.hermes/state.db` to find recent `role=user` messages for the same platform/chat and applies `recent_activity_seconds` before waking the agent. When a nudge is sent, `record-decision --decision sent --message ...` also mirrors that nudge into the matching non-cron chat transcript so the next reply has context. `--no-create-cron` and `--no-update-cron` do not change that activity source.
 
 Interactive installs ask for language and topics. English and Simplified Chinese show bundled default topics and allow customization. Custom language has no bundled defaults and requires custom topics. Non-interactive installs leave existing language/topics unchanged unless `--language` or `--topic` is passed. Language is user-configured and is not inferred from recent activity.
 
@@ -59,7 +59,7 @@ The generated command has this shape:
 
 ```bash
 hermes cron create "every 10m" \
-  "Use the nudge skill. The pre-run gate output is the source of truth. If the gate wakes you, decide whether to send one short proactive message. Before your final response, update the nudge state with nudge_state.py record-decision. If silent, final response must start exactly with [SILENT]." \
+  "Use the nudge skill. The pre-run gate output is the source of truth. If the gate wakes you, decide whether to send one short proactive message. Before your final response, update the nudge state with nudge_state.py record-decision; when sending, pass --message with the exact final user-facing nudge text so it can be mirrored into chat context. If silent, final response must start exactly with [SILENT]." \
   --name nudge \
   --deliver qqbot:<chat-id> \
   --skill nudge \

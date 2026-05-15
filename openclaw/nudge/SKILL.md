@@ -29,7 +29,7 @@ On every cron wake:
 1. Run `python3 ~/.openclaw/nudge/scripts/nudge_gate.py`.
 2. If the gate output has `"status": "silent"`, do not run `nudge_state.py record-decision`; final-answer exactly `HEARTBEAT_OK`.
 3. If the gate prints `NUDGE_GATE_CONTEXT`, decide whether to send one short proactive message.
-4. Before the final answer, run `nudge_state.py record-decision` to set the next wake time.
+4. Before the final answer, run `nudge_state.py record-decision` to set the next wake time; for sent nudges, pass `--message` with the exact final user-facing text.
 5. If sending a nudge, final-answer only the user-facing message.
 6. If not sending, final-answer exactly `HEARTBEAT_OK`.
 

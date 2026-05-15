@@ -78,7 +78,7 @@ python3 Hermes/nudge/scripts/install.py --force --language Japanese --topic "短
 
 创建或更新 cron 成功后，安装器会把本次选择的投递目标记录到 `~/.hermes/nudge/state.json` 的 `activity_source`。gate 会只读查询 `~/.hermes/state.db`，查找同一平台/会话里最近的 `role=user` 消息，用于 `recent_activity_seconds` 回避规则。
 
-这个逻辑只读 Hermes 的 SQLite state，不修改 Hermes 本体、`~/.hermes/config.yaml` 或 Hermes 会话记录。`--no-create-cron` 和 `--no-update-cron` 不会改 activity source，避免 state 和实际 cron 投递目标不一致。
+最近活动判断只读 Hermes 的 SQLite state。发送 nudge 时，`record-decision --decision sent --message ...` 会尽力把这条 nudge 镜像进同一聊天的非 cron 会话记录，并刷新 session 索引时间，让用户后续回复时 AI 能看到刚刚主动发出的内容。`--no-create-cron` 和 `--no-update-cron` 不会改 activity source，避免 state 和实际 cron 投递目标不一致。
 
 ## Cron 投递包装
 

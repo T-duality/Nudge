@@ -21,7 +21,8 @@ import nudge_state  # noqa: E402
 PROMPT = (
     "Use the nudge skill. The pre-run gate output is the source of truth. "
     "If the gate wakes you, decide whether to send one short proactive message. "
-    "Before your final response, update the nudge state with nudge_state.py record-decision. "
+    "Before your final response, update the nudge state with nudge_state.py record-decision; "
+    "when sending, pass --message with the exact final user-facing nudge text so it can be mirrored into chat context. "
     "If silent, final response must start exactly with [SILENT]."
 )
 

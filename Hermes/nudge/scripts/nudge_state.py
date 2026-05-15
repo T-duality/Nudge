@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import pathlib
 import random
+import sqlite3
 import sys
 import tempfile
+import time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -262,6 +265,252 @@ def append_history(state: dict[str, Any], event: str, **fields: Any) -> None:
     state["history"] = state["history"][-max_history:]
 
 
+def context_injection_id(runtime: str, decision_at: str, message: str) -> str:
+    digest = hashlib.sha256(f"{runtime}\n{decision_at}\n{message}".encode("utf-8")).hexdigest()
+    return f"nudge:{digest[:24]}"
+
+
+def parse_sort_time(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if value is None:
+        return 0.0
+    raw = str(value).strip()
+    if not raw:
+        return 0.0
+    try:
+        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def find_hermes_mirror_session(source: dict[str, Any]) -> tuple[str, pathlib.Path] | None:
+    platform = str(source.get("platform") or "").strip()
+    chat_id = str(source.get("chat_id") or "").strip()
+    thread_id = str(source.get("thread_id") or "").strip()
+    user_id = str(source.get("user_id") or "").strip()
+    if not platform or not (chat_id or user_id):
+        return None
+
+    sessions_raw = source.get("sessions_path")
+    if not sessions_raw:
+        return None
+    sessions_path = pathlib.Path(os.path.expanduser(str(sessions_raw))).resolve()
+    try:
+        data = json.loads(sessions_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    candidates: list[tuple[float, str, dict[str, Any]]] = []
+    platform_lower = platform.lower()
+    for key, raw_entry in data.items():
+        if ":cron:" in str(key):
+            continue
+        if not isinstance(raw_entry, dict):
+            continue
+        session_id = str(raw_entry.get("session_id") or raw_entry.get("sessionId") or "").strip()
+        if not session_id or session_id.startswith("cron_"):
+            continue
+        origin = raw_entry.get("origin")
+        origin = origin if isinstance(origin, dict) else {}
+        entry_platform = str(origin.get("platform") or raw_entry.get("platform") or "").strip().lower()
+        if entry_platform != platform_lower:
+            continue
+
+        origin_chat_id = str(origin.get("chat_id") or "").strip()
+        origin_user_id = str(origin.get("user_id") or raw_entry.get("user_id") or "").strip()
+        origin_thread_id = str(origin.get("thread_id") or "").strip()
+        if chat_id and chat_id not in {origin_chat_id, origin_user_id}:
+            continue
+        if user_id and origin_user_id != user_id:
+            continue
+        if thread_id and origin_thread_id != thread_id:
+            continue
+        updated = parse_sort_time(raw_entry.get("updated_at") or raw_entry.get("updatedAt") or raw_entry.get("created_at"))
+        candidates.append((updated, session_id, raw_entry))
+
+    if not candidates:
+        return None
+    if not user_id:
+        distinct_users = {
+            str(((entry.get("origin") if isinstance(entry.get("origin"), dict) else {}) or {}).get("user_id") or entry.get("user_id") or "").strip()
+            for _updated, _session_id, entry in candidates
+        }
+        distinct_users.discard("")
+        if len(distinct_users) > 1:
+            return None
+
+    candidates.sort(reverse=True, key=lambda item: item[0])
+    return candidates[0][1], sessions_path.parent
+
+
+def transcript_has_nudge_injection(path: pathlib.Path, injection_id: str, message: str) -> bool:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-200:]
+    except OSError:
+        return False
+    for line in reversed(lines):
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict):
+            continue
+        if item.get("nudge_injection_id") == injection_id:
+            return True
+        item_time = parse_sort_time(item.get("timestamp"))
+        is_recent = not item_time or time.time() - item_time < 600
+        if is_recent and item.get("mirror_source") == "nudge" and item.get("content") == message:
+            return True
+    return False
+
+
+def append_hermes_transcript_mirror(
+    session_id: str,
+    sessions_dir: pathlib.Path,
+    message: str,
+    decision_at: str,
+    injection_id: str,
+) -> tuple[bool, str | None]:
+    transcript_path = sessions_dir / f"{session_id}.jsonl"
+    if transcript_has_nudge_injection(transcript_path, injection_id, message):
+        return True, "duplicate"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    mirror_message = {
+        "role": "assistant",
+        "content": message,
+        "timestamp": now_iso(),
+        "mirror": True,
+        "mirror_source": "nudge",
+        "nudge_injection_id": injection_id,
+        "nudge_decision_at": decision_at,
+    }
+    try:
+        with open(transcript_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(mirror_message, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        return False, str(exc)
+    return True, None
+
+
+def append_hermes_sqlite_mirror(
+    db_path: pathlib.Path,
+    session_id: str,
+    message: str,
+) -> tuple[bool, str | None]:
+    if not db_path.exists():
+        return False, "state db not found"
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=1.0)
+    except sqlite3.Error as exc:
+        return False, str(exc)
+    try:
+        conn.execute("PRAGMA busy_timeout=1000")
+        row = conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        if not row:
+            return False, "session not found in state db"
+        duplicate = conn.execute(
+            "SELECT id FROM messages WHERE session_id = ? AND role = 'assistant' "
+            "AND content = ? AND timestamp > ? ORDER BY timestamp DESC LIMIT 1",
+            (session_id, message, time.time() - 600),
+        ).fetchone()
+        if duplicate:
+            return True, "duplicate"
+        with conn:
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+                (session_id, "assistant", message, time.time()),
+            )
+            conn.execute(
+                "UPDATE sessions SET message_count = message_count + 1 WHERE id = ?",
+                (session_id,),
+            )
+    except sqlite3.Error as exc:
+        return False, str(exc)
+    finally:
+        conn.close()
+    return True, None
+
+
+def touch_hermes_session_index(source: dict[str, Any], session_id: str, touched_at: str) -> tuple[bool, str | None]:
+    sessions_raw = source.get("sessions_path")
+    if not sessions_raw:
+        return False, "sessions path missing"
+    sessions_path = pathlib.Path(os.path.expanduser(str(sessions_raw))).resolve()
+    try:
+        data = json.loads(sessions_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, str(exc)
+    if not isinstance(data, dict):
+        return False, "sessions index is not an object"
+
+    changed = False
+    for raw_entry in data.values():
+        if not isinstance(raw_entry, dict):
+            continue
+        entry_session_id = str(raw_entry.get("session_id") or raw_entry.get("sessionId") or "").strip()
+        if entry_session_id != session_id:
+            continue
+        raw_entry["updated_at"] = touched_at
+        changed = True
+    if not changed:
+        return False, "session not found in sessions index"
+
+    content = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(sessions_path.parent), delete=False) as fh:
+            fh.write(content)
+            temp_name = fh.name
+        pathlib.Path(temp_name).replace(sessions_path)
+    except OSError as exc:
+        return False, str(exc)
+    return True, None
+
+
+def inject_sent_context(state: dict[str, Any], message: str | None, decision_at: str) -> dict[str, Any]:
+    if not message:
+        return {"enabled": False, "reason": "missing message"}
+    source = normalize_activity_source(state.get("activity_source"))
+    if not source.get("enabled") or source.get("type") != "hermes_state_db":
+        return {"enabled": False, "reason": "activity source disabled"}
+
+    session = find_hermes_mirror_session(source)
+    if not session:
+        return {"enabled": True, "ok": False, "reason": "no matching session"}
+    session_id, sessions_dir = session
+    injection_id = context_injection_id("hermes", decision_at, message)
+    jsonl_ok, jsonl_error = append_hermes_transcript_mirror(
+        session_id,
+        sessions_dir,
+        message,
+        decision_at,
+        injection_id,
+    )
+    db_raw = source.get("db_path") or str(hermes_home() / "state.db")
+    db_ok, db_error = append_hermes_sqlite_mirror(
+        pathlib.Path(os.path.expanduser(str(db_raw))).resolve(),
+        session_id,
+        message,
+    )
+    touch_ok, touch_error = touch_hermes_session_index(source, session_id, decision_at)
+    result: dict[str, Any] = {
+        "enabled": True,
+        "ok": bool(jsonl_ok or db_ok),
+        "runtime": "hermes",
+        "session_id": session_id,
+        "session_index_touched": touch_ok,
+    }
+    if jsonl_error:
+        result["jsonl_error"] = jsonl_error
+    if db_error:
+        result["db_error"] = db_error
+    if touch_error:
+        result["session_index_error"] = touch_error
+    return result
+
+
 def set_random_initial_wake(state: dict[str, Any]) -> str:
     tz = tz_from_state(state)
     low = int(state.get("initial_wake_min_minutes") or 15)
@@ -341,6 +590,9 @@ def cmd_record_decision(args: argparse.Namespace) -> int:
     state["next_wake_at"] = next_at
     if args.decision == "sent":
         state["last_sent_at"] = decision_at
+    context_injection = None
+    if args.decision == "sent":
+        context_injection = inject_sent_context(state, args.message, decision_at)
     append_history(
         state,
         "decision",
@@ -348,16 +600,18 @@ def cmd_record_decision(args: argparse.Namespace) -> int:
         reason=args.reason,
         message=args.message,
         next_wake_at=next_at,
+        context_injection=context_injection,
     )
     save_state(path, state)
-    print_json(
-        {
-            "ok": True,
-            "decision": args.decision,
-            "next_wake_at": next_at,
-            "path": str(path),
-        }
-    )
+    output = {
+        "ok": True,
+        "decision": args.decision,
+        "next_wake_at": next_at,
+        "path": str(path),
+    }
+    if context_injection is not None:
+        output["context_injection"] = context_injection
+    print_json(output)
     return 0
 
 

@@ -77,7 +77,9 @@ The gate can read user activity from three places:
 - Hermes `~/.hermes/state.db`, when `activity_source.type` is `hermes_state_db`
 - a JSONL file through `--activity-log` or `NUDGE_ACTIVITY_LOG`
 
-The Hermes SQLite source is read-only. It joins `messages` to `sessions`, filters `messages.role = 'user'`, excludes cron sessions, and matches the configured platform/chat when available. It uses the latest matching user message timestamp for the recent-activity avoidance rule.
+For recent-activity avoidance, the Hermes SQLite source is read-only. It joins `messages` to `sessions`, filters `messages.role = 'user'`, excludes cron sessions, and matches the configured platform/chat when available. It uses the latest matching user message timestamp for the recent-activity avoidance rule.
+
+For sent nudges, `record-decision --decision sent --message ...` also best-effort mirrors the nudge into the matching non-cron Hermes chat session. This writes a small assistant `delivery-mirror` row to the chat transcript and SQLite state DB, then refreshes the session index timestamp so the next user reply stays on that session and has the nudge in context.
 
 Each line may look like:
 

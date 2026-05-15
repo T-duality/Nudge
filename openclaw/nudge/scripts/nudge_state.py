@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import pathlib
 import random
+import shutil
+import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -231,6 +235,425 @@ def append_history(state: dict[str, Any], event: str, **fields: Any) -> None:
     state["history"] = state["history"][-int(state.get("max_history") or 50):]
 
 
+def context_injection_id(runtime: str, decision_at: str, message: str) -> str:
+    digest = hashlib.sha256(f"{runtime}\n{decision_at}\n{message}".encode("utf-8")).hexdigest()
+    return f"nudge:{digest[:24]}"
+
+
+def parse_sort_time(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        raw = float(value)
+        return raw / 1000 if raw > 10_000_000_000 else raw
+    if value is None:
+        return 0.0
+    raw = str(value).strip()
+    if not raw:
+        return 0.0
+    try:
+        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def openclaw_config_path(source: dict[str, Any]) -> pathlib.Path:
+    raw_path = source.get("sessions_path")
+    if raw_path:
+        sessions_path = pathlib.Path(os.path.expanduser(str(raw_path))).resolve()
+        try:
+            return sessions_path.parents[3] / "openclaw.json"
+        except IndexError:
+            pass
+    return openclaw_home() / "openclaw.json"
+
+
+def normalize_reset_mode(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    return raw if raw in {"daily", "idle"} else None
+
+
+def normalize_reset_hour(value: Any) -> int:
+    try:
+        hour = int(value)
+    except (TypeError, ValueError):
+        return 4
+    return min(23, max(0, hour))
+
+
+def openclaw_reset_policy(source: dict[str, Any]) -> tuple[str, int]:
+    try:
+        cfg = json.loads(openclaw_config_path(source).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "daily", 4
+    session_cfg = cfg.get("session") if isinstance(cfg, dict) else None
+    session_cfg = session_cfg if isinstance(session_cfg, dict) else {}
+    base_reset = session_cfg.get("reset")
+    base_reset = base_reset if isinstance(base_reset, dict) else None
+    reset_by_type = session_cfg.get("resetByType")
+    reset_by_type = reset_by_type if isinstance(reset_by_type, dict) else {}
+    type_reset = reset_by_type.get("direct") or reset_by_type.get("dm")
+    type_reset = type_reset if isinstance(type_reset, dict) else None
+    reset_by_channel = session_cfg.get("resetByChannel")
+    reset_by_channel = reset_by_channel if isinstance(reset_by_channel, dict) else {}
+    channel = str(source.get("channel") or "").strip().lower()
+    channel_reset = reset_by_channel.get(channel)
+    channel_reset = channel_reset if isinstance(channel_reset, dict) else None
+
+    selected = channel_reset or type_reset or base_reset
+    has_explicit_reset = bool(base_reset or type_reset or channel_reset or reset_by_type or reset_by_channel)
+    mode = normalize_reset_mode(selected.get("mode") if selected else None)
+    if not mode:
+        mode = "idle" if not has_explicit_reset and session_cfg.get("idleMinutes") is not None else "daily"
+    at_hour = normalize_reset_hour(selected.get("atHour") if selected else None)
+    return mode, at_hour
+
+
+def daily_reset_boundary_ms(now_ms: int, at_hour: int) -> int:
+    now = dt.datetime.fromtimestamp(now_ms / 1000, local_tz())
+    reset_at = now.replace(hour=normalize_reset_hour(at_hour), minute=0, second=0, microsecond=0)
+    if now < reset_at:
+        reset_at -= dt.timedelta(days=1)
+    return int(reset_at.timestamp() * 1000)
+
+
+def normalize_match_value(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def openclaw_session_matches_source(key: str, meta: dict[str, Any], source: dict[str, Any]) -> bool:
+    if ":cron:" in key:
+        return False
+    origin = meta.get("origin")
+    origin = origin if isinstance(origin, dict) else {}
+    delivery = meta.get("deliveryContext")
+    delivery = delivery if isinstance(delivery, dict) else {}
+
+    channel = normalize_match_value(source.get("channel"))
+    if channel:
+        channels = {
+            normalize_match_value(meta.get("lastChannel")),
+            normalize_match_value(origin.get("provider")),
+            normalize_match_value(origin.get("surface")),
+            normalize_match_value(delivery.get("channel")),
+        }
+        if channel not in channels:
+            return False
+
+    account = normalize_match_value(source.get("account"))
+    if account:
+        accounts = {
+            normalize_match_value(meta.get("lastAccountId")),
+            normalize_match_value(origin.get("accountId")),
+            normalize_match_value(delivery.get("accountId")),
+            normalize_match_value(delivery.get("account")),
+        }
+        if account not in accounts:
+            return False
+
+    target = normalize_match_value(source.get("to"))
+    if target:
+        targets = {
+            normalize_match_value(meta.get("lastTo")),
+            normalize_match_value(origin.get("from")),
+            normalize_match_value(origin.get("to")),
+            normalize_match_value(origin.get("label")),
+            normalize_match_value(delivery.get("to")),
+        }
+        if target not in targets:
+            return False
+
+    thread_id = normalize_match_value(source.get("thread_id"))
+    if thread_id:
+        threads = {
+            normalize_match_value(meta.get("threadId")),
+            normalize_match_value(meta.get("lastThreadId")),
+            normalize_match_value(origin.get("threadId")),
+            normalize_match_value(origin.get("thread_id")),
+            normalize_match_value(delivery.get("threadId")),
+            normalize_match_value(delivery.get("thread_id")),
+        }
+        if thread_id not in threads:
+            return False
+
+    return bool(channel or account or target or thread_id)
+
+
+def openclaw_session_target(meta: dict[str, Any]) -> str:
+    origin = meta.get("origin")
+    origin = origin if isinstance(origin, dict) else {}
+    delivery = meta.get("deliveryContext")
+    delivery = delivery if isinstance(delivery, dict) else {}
+    return normalize_match_value(meta.get("lastTo") or delivery.get("to") or origin.get("to") or origin.get("from") or origin.get("label"))
+
+
+def find_openclaw_mirror_session(source: dict[str, Any]) -> tuple[str, str, pathlib.Path] | None:
+    raw_path = source.get("sessions_path")
+    if not raw_path:
+        return None
+    sessions_path = pathlib.Path(os.path.expanduser(str(raw_path))).resolve()
+    try:
+        data = json.loads(sessions_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    candidates: list[tuple[float, str, str, pathlib.Path, dict[str, Any]]] = []
+    base_dir = sessions_path.parent
+    for key, raw_meta in data.items():
+        if not isinstance(raw_meta, dict) or not openclaw_session_matches_source(str(key), raw_meta, source):
+            continue
+        session_id = str(raw_meta.get("sessionId") or raw_meta.get("session_id") or "").strip()
+        session_key = str(key).strip()
+        raw_session_file = raw_meta.get("sessionFile")
+        if not session_id or not session_key or not raw_session_file:
+            continue
+        session_file = pathlib.Path(os.path.expanduser(str(raw_session_file)))
+        if not session_file.is_absolute():
+            session_file = base_dir / session_file
+        updated = parse_sort_time(raw_meta.get("updatedAt") or raw_meta.get("updated_at") or raw_meta.get("lastInteractionAt"))
+        candidates.append((updated, session_key, session_id, session_file, raw_meta))
+
+    if not candidates:
+        return None
+    if not str(source.get("to") or "").strip():
+        distinct_targets = {openclaw_session_target(meta) for *_prefix, meta in candidates}
+        distinct_targets.discard("")
+        if len(distinct_targets) > 1:
+            return None
+
+    candidates.sort(reverse=True, key=lambda item: item[0])
+    _updated, session_key, session_id, session_file, _meta = candidates[0]
+    return session_key, session_id, session_file
+
+
+def transcript_nudge_injection_status(path: pathlib.Path, injection_id: str, message: str) -> str | None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-400:]
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        msg = item.get("message")
+        if not isinstance(msg, dict):
+            continue
+        provider = str(msg.get("provider") or "").strip()
+        model = str(msg.get("model") or "").strip()
+        if msg.get("idempotencyKey") == injection_id:
+            if provider == "openclaw" and model in {"delivery-mirror", "gateway-injected"}:
+                return "transcript_only"
+            return "visible"
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        texts = [str(part.get("text") or "").strip() for part in content if isinstance(part, dict) and part.get("type") == "text"]
+        if "\n".join(text for text in texts if text).strip() != message.strip():
+            continue
+        item_time = parse_sort_time(item.get("timestamp") or msg.get("timestamp"))
+        is_recent = not item_time or time.time() - item_time < 600
+        if not is_recent:
+            continue
+        if not provider and not model:
+            return "visible"
+        if provider == "openclaw" and model == "delivery-mirror":
+            return "transcript_only"
+    return None
+
+
+def openclaw_agent_harness_module() -> pathlib.Path | None:
+    candidates: list[pathlib.Path] = []
+    package_dir = os.environ.get("OPENCLAW_PACKAGE_DIR")
+    if package_dir:
+        candidates.append(pathlib.Path(os.path.expanduser(package_dir)) / "dist" / "plugin-sdk" / "agent-harness.js")
+    openclaw_bin = shutil.which("openclaw")
+    if openclaw_bin:
+        resolved = pathlib.Path(openclaw_bin).resolve()
+        candidates.append(resolved.parent / "dist" / "plugin-sdk" / "agent-harness.js")
+        candidates.append(resolved.parent.parent / "openclaw" / "dist" / "plugin-sdk" / "agent-harness.js")
+    candidates.extend([
+        pathlib.Path("/opt/homebrew/lib/node_modules/openclaw/dist/plugin-sdk/agent-harness.js"),
+        pathlib.Path("/usr/local/lib/node_modules/openclaw/dist/plugin-sdk/agent-harness.js"),
+    ])
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return None
+
+
+def append_openclaw_transcript_with_node(
+    session_key: str,
+    session_id: str,
+    session_file: pathlib.Path,
+    message: str,
+    injection_id: str,
+) -> tuple[bool, str | None]:
+    module = openclaw_agent_harness_module()
+    if module is None:
+        return False, "openclaw agent-harness module not found"
+    node = shutil.which("node")
+    if not node:
+        return False, "node not found on PATH"
+
+    payload = {
+        "moduleUrl": module.as_uri(),
+        "sessionKey": session_key,
+        "sessionId": session_id,
+        "sessionFile": str(session_file),
+        "now": int(time.time() * 1000),
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": message}],
+            # OpenClaw excludes openclaw/delivery-mirror assistant messages from replay history.
+            # Leave provider/model unset so the proactive nudge is visible to the next turn.
+            "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0,
+                },
+            },
+            "stopReason": "stop",
+            "timestamp": int(time.time() * 1000),
+            "idempotencyKey": injection_id,
+        },
+    }
+    script = """
+let raw = "";
+for await (const chunk of process.stdin) raw += chunk;
+const input = JSON.parse(raw);
+const mod = await import(input.moduleUrl);
+const result = await mod.appendSessionTranscriptMessage({
+  transcriptPath: input.sessionFile,
+  sessionId: input.sessionId,
+  message: input.message,
+  now: input.now,
+  config: { session: { writeLock: { acquireTimeoutMs: 5000 } } }
+});
+process.stdout.write(JSON.stringify({ ok: true, messageId: result.messageId }));
+"""
+    try:
+        result = subprocess.run(
+            [node, "--input-type=module", "-e", script],
+            input=json.dumps(payload, ensure_ascii=False),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        return False, detail or f"node exited with {result.returncode}"
+    return True, None
+
+
+def touch_openclaw_session_index(
+    source: dict[str, Any],
+    session_key: str,
+    session_id: str,
+    session_file: pathlib.Path,
+) -> tuple[bool, str | None]:
+    raw_path = source.get("sessions_path")
+    if not raw_path:
+        return False, "sessions path missing"
+    sessions_path = pathlib.Path(os.path.expanduser(str(raw_path))).resolve()
+    try:
+        data = json.loads(sessions_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, str(exc)
+    if not isinstance(data, dict):
+        return False, "sessions index is not an object"
+
+    entry = data.get(session_key)
+    if not isinstance(entry, dict):
+        return False, "session key not found in sessions index"
+    entry_session_id = str(entry.get("sessionId") or entry.get("session_id") or "").strip()
+    if entry_session_id != session_id:
+        return False, "session id changed in sessions index"
+    now_ms = int(time.time() * 1000)
+    entry["updatedAt"] = now_ms
+    entry["lastInteractionAt"] = now_ms
+    reset_mode, reset_at_hour = openclaw_reset_policy(source)
+    session_started_ms = int(parse_sort_time(entry.get("sessionStartedAt")) * 1000)
+    if reset_mode == "daily" and session_started_ms < daily_reset_boundary_ms(now_ms, reset_at_hour):
+        entry["sessionStartedAt"] = now_ms
+    entry["sessionFile"] = str(session_file)
+
+    content = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(sessions_path.parent), delete=False) as fh:
+            fh.write(content)
+            temp_name = fh.name
+        pathlib.Path(temp_name).replace(sessions_path)
+    except OSError as exc:
+        return False, str(exc)
+    return True, None
+
+
+def inject_sent_context(state: dict[str, Any], message: str | None, decision_at: str) -> dict[str, Any]:
+    if not message:
+        return {"enabled": False, "reason": "missing message"}
+    source = normalize_activity_source(state.get("activity_source"))
+    if not source.get("enabled") or source.get("type") != "openclaw_sessions":
+        return {"enabled": False, "reason": "activity source disabled"}
+
+    session = find_openclaw_mirror_session(source)
+    if not session:
+        return {"enabled": True, "ok": False, "reason": "no matching session"}
+    session_key, session_id, session_file = session
+    injection_id = context_injection_id("openclaw", decision_at, message)
+    existing_injection = transcript_nudge_injection_status(session_file, injection_id, message)
+    if existing_injection == "visible":
+        touch_ok, touch_error = touch_openclaw_session_index(source, session_key, session_id, session_file)
+        return {
+            "enabled": True,
+            "ok": True,
+            "runtime": "openclaw",
+            "context_visible": True,
+            "session_key": session_key,
+            "session_id": session_id,
+            "duplicate": True,
+            "session_index_touched": touch_ok,
+            **({"session_index_error": touch_error} if touch_error else {}),
+        }
+    ok, error = append_openclaw_transcript_with_node(
+        session_key,
+        session_id,
+        session_file,
+        message,
+        injection_id,
+    )
+    touch_ok, touch_error = touch_openclaw_session_index(source, session_key, session_id, session_file)
+    result: dict[str, Any] = {
+        "enabled": True,
+        "ok": ok,
+        "runtime": "openclaw",
+        "context_visible": ok,
+        "session_key": session_key,
+        "session_id": session_id,
+        "session_index_touched": touch_ok,
+    }
+    if error:
+        result["error"] = error
+    if touch_error:
+        result["session_index_error"] = touch_error
+    if existing_injection == "transcript_only":
+        result["replaced_transcript_only"] = True
+    return result
+
+
 def set_random_initial_wake(state: dict[str, Any]) -> str:
     tz = tz_from_state(state)
     low = int(state.get("initial_wake_min_minutes") or 15)
@@ -315,9 +738,23 @@ def cmd_record_decision(args: argparse.Namespace) -> int:
     state["next_wake_at"] = next_at
     if args.decision == "sent":
         state["last_sent_at"] = now_iso(state)
-    append_history(state, "decision", decision=args.decision, reason=args.reason, message=args.message, next_wake_at=next_at)
+    context_injection = None
+    if args.decision == "sent":
+        context_injection = inject_sent_context(state, args.message, state["last_sent_at"])
+    append_history(
+        state,
+        "decision",
+        decision=args.decision,
+        reason=args.reason,
+        message=args.message,
+        next_wake_at=next_at,
+        context_injection=context_injection,
+    )
     save_state(path, state)
-    print_json({"ok": True, "decision": args.decision, "next_wake_at": next_at, "path": str(path)})
+    output = {"ok": True, "decision": args.decision, "next_wake_at": next_at, "path": str(path)}
+    if context_injection is not None:
+        output["context_injection"] = context_injection
+    print_json(output)
     return 0
 
 

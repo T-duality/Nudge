@@ -22,7 +22,7 @@ python3 openclaw/nudge/scripts/install.py --force
 
 如果已存在同名 cron job，安装脚本会用本次选择的投递渠道、schedule、message、tools 和 session 设置更新它，避免重复；需要多实例时传不同的 `--name`。
 
-创建或更新 cron 成功后，安装器会把本次选择的投递目标记录到 `~/.openclaw/nudge/state.json` 的 `activity_source`。gate 会只读 `~/.openclaw/agents/main/sessions/sessions.json` 和匹配的 session JSONL，只使用 `message.role=user` 的时间戳判断最近活动，不读取或使用消息内容。
+创建或更新 cron 成功后，安装器会把本次选择的投递目标记录到 `~/.openclaw/nudge/state.json` 的 `activity_source`。gate 会只读 `~/.openclaw/agents/main/sessions/sessions.json` 和匹配的 session JSONL，只使用 `message.role=user` 的时间戳判断最近活动，不读取或使用消息内容。发送 nudge 时，`record-decision --decision sent --message ...` 会尽力用 OpenClaw 的 transcript append API 把这条 nudge 作为上下文可见的 assistant 消息镜像进同一聊天的非 cron 会话记录，并刷新 session 索引里的 freshness 时间，让用户后续回复时 AI 能看到刚刚主动发出的内容。这里不能使用 OpenClaw 的 `delivery-mirror` / `gateway-injected` 标记，因为它们会被运行时当作 transcript-only 消息从 replay history 中移除。
 
 安装前可以先做无写入检查：
 

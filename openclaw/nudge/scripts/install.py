@@ -641,7 +641,7 @@ def build_prompt(gate_script: pathlib.Path, state_script: pathlib.Path) -> str:
         "If the gate JSON has status silent, do not run any other command and final reply exactly HEARTBEAT_OK. "
         "Only if the gate prints NUDGE_GATE_CONTEXT, decide whether to send one short proactive message. "
         f"After a NUDGE_GATE_CONTEXT decision, update state with python3 {state_script} record-decision "
-        "--decision sent|silent --next-minutes <minutes>. "
+        "--decision sent|silent --next-minutes <minutes>; when sending, include --message with the exact final user-facing nudge text. "
         "Then final reply exactly HEARTBEAT_OK for a due-but-silent decision, or only the user-facing nudge when sending."
     )
 

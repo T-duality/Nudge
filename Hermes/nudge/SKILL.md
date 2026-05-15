@@ -28,7 +28,7 @@ When the cron pre-run script wakes the agent, use the gate output as the source 
 
 1. Read the gate context injected into the prompt.
 2. Decide whether a proactive message is worth sending now.
-3. Before the final response, update state with `nudge_state.py record-decision`.
+3. Before the final response, update state with `nudge_state.py record-decision`; for sent nudges, pass `--message` with the exact final user-facing text.
 4. If sending a nudge, make the final response exactly the short user-facing message.
 5. If not sending, make the final response start with `[SILENT]` so Hermes suppresses delivery.
 
