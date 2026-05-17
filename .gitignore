@@ -1,4 +1,8 @@
 .DS_Store
+AGENTS.md
+CLEANUP.md
+设想.md
+
 __pycache__/
 *.py[cod]
 *$py.class
