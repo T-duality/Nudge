@@ -18,7 +18,7 @@ python3 openclaw/nudge/scripts/install.py --force
 - 初始化 state 到 `~/.openclaw/nudge/state.json`
 - 创建或更新一个名为 `nudge` 的 OpenClaw cron job
 - 在交互式终端里显示投递平台数字选择菜单
-- 在交互式终端里询问输出语言和 topics；非交互环境默认不改已有偏好
+- 在交互式终端里询问输出语言和话题（topics）；非交互环境默认不改已有偏好
 
 如果已存在同名 cron job，安装脚本会用本次选择的投递渠道、schedule、message、tools 和 session 设置更新它，避免重复；需要多实例时传不同的 `--name`。
 
@@ -52,15 +52,15 @@ python3 openclaw/nudge/scripts/install.py --force --channel auto
 
 如果选择的渠道需要固定收件人，安装器会继续询问 `--to`。QQ Bot 会优先读取 `~/.openclaw/qqbot/data/known-users.json`，把最近已知的私聊/群目标列成菜单；没有可用记录时再回退到手动输入。QQ Bot 目标格式通常是 `qqbot:c2c:<openid>`（私聊）或 `qqbot:group:<groupid>`（群）。
 
-## 语言和主题
+## 语言和话题
 
 交互式安装会询问 Nudge 输出语言：
 
-- `English`：展示英文默认 topics，可直接使用或自定义。
-- `简体中文`：展示中文默认 topics，可直接使用或自定义。
-- `Custom language`：没有内置默认 topics，必须输入自定义 topics。
+- `English`：展示英文默认话题（topics），可直接使用或自定义。
+- `简体中文`：展示中文默认话题（topics），可直接使用或自定义。
+- `Custom language`：没有内置默认话题（topics），必须输入自定义话题。
 
-非交互环境默认不改已有语言和 topics；新 state 会保留英文 fallback 和英文默认 topics。也可以显式传参数：
+非交互环境默认不改已有语言和话题；新 state 会保留英文 fallback 和英文默认话题。也可以显式传参数：
 
 ```bash
 python3 openclaw/nudge/scripts/install.py --force --language zh-CN
@@ -88,7 +88,7 @@ python3 openclaw/nudge/scripts/install.py --force --channel openclaw-weixin
 python3 openclaw/nudge/scripts/install.py --force --channel telegram --to "<chat-id>"
 ```
 
-指定 Telegram forum topic：
+指定 Telegram 论坛话题：
 
 ```bash
 python3 openclaw/nudge/scripts/install.py --force --channel telegram --to "<chat-id>" --thread-id "<topic-id>"
