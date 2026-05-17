@@ -40,7 +40,7 @@ openclaw/    OpenClaw skill, installer, runtime scripts, and docs
 
 The root README introduces the project. The README files under each platform directory contain platform-specific installation and troubleshooting notes.
 
-## Hermes Usage
+## Hermes Installation
 
 Run this from the repository root:
 
@@ -64,15 +64,9 @@ Hermes state file:
 
 For more Hermes details, see [Hermes/README.md](Hermes/README.md).
 
-## OpenClaw Usage
+## OpenClaw Installation
 
-You can run a no-write check first:
-
-```bash
-python3 openclaw/nudge/scripts/install.py --check
-```
-
-To enable OpenClaw Nudge:
+Run this from the repository root:
 
 ```bash
 python3 openclaw/nudge/scripts/install.py --force

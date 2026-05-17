@@ -42,7 +42,7 @@ openclaw/    OpenClaw 版本的 skill、安装脚本、运行脚本和说明
 
 根目录的 README 用来介绍项目；各平台目录里的 README 是更具体的安装和排查说明。
 
-## Hermes 使用方式
+## Hermes 安装方式
 
 在项目根目录运行：
 
@@ -66,15 +66,8 @@ Hermes 版的状态文件在：
 
 更完整的 Hermes 说明见 [Hermes/README.md](Hermes/README.md)。
 
-## OpenClaw 使用方式
-
-安装前可以先做无写入检查：
-
-```bash
-python3 openclaw/nudge/scripts/install.py --check
-```
-
-启用 OpenClaw 版 Nudge：
+## OpenClaw 安装方式
+在项目根目录运行：
 
 ```bash
 python3 openclaw/nudge/scripts/install.py --force
