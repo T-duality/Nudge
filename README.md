@@ -1,6 +1,11 @@
-# Nudge
-
-[简体中文](README.md) | [English](README.en.md)
+<div align="center">
+  <h1>Nudge</h1>
+  <p>
+    <a href="README.md">简体中文</a> ·
+    <a href="README.en.md">English</a>
+  </p>
+  <img src="images/banner.png" alt="Nudge banner" width="100%">
+</div>
 
 ## 动机
 
