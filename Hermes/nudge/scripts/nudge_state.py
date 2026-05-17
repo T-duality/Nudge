@@ -220,7 +220,6 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         merged["topics"] = list(DEFAULT_TOPICS)
     merged["language"] = normalize_language(merged.get("language"))
     merged["activity_source"] = normalize_activity_source(merged.get("activity_source"))
-    merged.pop("topic_translations", None)
     if not isinstance(merged.get("quiet_hours"), list):
         merged["quiet_hours"] = []
     if not isinstance(merged.get("history"), list):
