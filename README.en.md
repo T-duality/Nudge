@@ -1,10 +1,10 @@
 <div align="center">
   <h1>Nudge</h1>
+  <img src="images/banner-en.png" alt="Nudge banner" width="100%">
   <p>
     <a href="README.md">简体中文</a> ·
     <a href="README.en.md">English</a>
   </p>
-  <img src="images/banner-en.png" alt="Nudge banner" width="100%">
 </div>
 
 ## Motivation
