@@ -18,7 +18,7 @@ Proactive means Nudge lets the AI decide when to message you. It is not just a t
 ### How It Works
 
 <p align="center">
-  <img src="images/Nudeg流程图-en.png" alt="Nudge flowchart" width="70%">
+  <img src="images/Nudeg流程图-en.png" alt="Nudge flowchart" width="50%">
 </p>
 
 A cron job wakes the AI and asks: "Do you want to send the user a message right now?" The AI can judge from recent context, current time, user state, interruption risk, and its own "urge to speak":
