@@ -47,9 +47,24 @@ openclaw/    OpenClaw 版本的 skill、安装脚本、运行脚本和说明
 
 根目录的 README 用来介绍项目；各平台目录里的 README 是更具体的安装和排查说明。
 
+## 环境要求
+
+- `git`：用于克隆仓库。
+- `Python 3.9+`：安装脚本和运行脚本只使用 Python 标准库，不需要额外安装 pip 依赖。
+- Hermes 版：需要已安装并配置 `hermes` 命令。
+- OpenClaw 版：需要已安装并配置 `openclaw` 命令；建议同时确保 `node` 在 `PATH` 中，便于把已发送的 nudge 写回 OpenClaw 会话上下文。
+- 至少有一个可用投递渠道；如果暂时不接 Telegram、QQ Bot、微信等外部渠道，可以先使用 `local`。
+
 ## Hermes 安装方式
 
-在项目根目录运行：
+先克隆仓库并进入项目根目录：
+
+```bash
+git clone https://github.com/T-duality/Nudge.git
+cd Nudge
+```
+
+然后运行：
 
 ```bash
 python3 Hermes/nudge/scripts/install.py --force
@@ -72,7 +87,15 @@ Hermes 版的状态文件在：
 更完整的 Hermes 说明见 [Hermes/README.md](Hermes/README.md)。
 
 ## OpenClaw 安装方式
-在项目根目录运行：
+
+先克隆仓库并进入项目根目录：
+
+```bash
+git clone https://github.com/T-duality/Nudge.git
+cd Nudge
+```
+
+然后运行：
 
 ```bash
 python3 openclaw/nudge/scripts/install.py --force
