@@ -1,6 +1,6 @@
-<mxfile host="app.diagrams.net">
+<mxfile host="Electron">
   <diagram name="第 1 页" id="kKiNQsvosTA40TCHbuod">
-    <mxGraphModel dx="2054" dy="1103" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="1518" dy="1322" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -47,51 +47,6 @@
           <mxGeometry height="55" width="140" x="490" y="467.5" as="geometry" />
         </mxCell>
         <mxCell id="E0krjkNLjYa7NIdTZmux-17" edge="1" parent="1" source="E0krjkNLjYa7NIdTZmux-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=-0.002;entryY=0.408;entryDx=0;entryDy=0;entryPerimeter=0;" target="E0krjkNLjYa7NIdTZmux-1">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-19" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Verdana;fontSize=16;" value="&lt;font face=&quot;Maple Mono NF CN, Consolas, Courier New, monospace&quot;&gt;&lt;span&gt;Nudge wakes AI via cron job&lt;/span&gt;&lt;/font&gt;" vertex="1">
-          <mxGeometry height="80" width="270" x="470" y="1030" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-20" edge="1" parent="1" source="E0krjkNLjYa7NIdTZmux-19" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" value="">
-          <mxGeometry height="50" relative="1" width="50" as="geometry">
-            <mxPoint x="581" y="1380" as="sourcePoint" />
-            <mxPoint x="605" y="1220" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-21" edge="1" parent="1" source="E0krjkNLjYa7NIdTZmux-26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;" target="E0krjkNLjYa7NIdTZmux-19" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-22" edge="1" parent="1" source="E0krjkNLjYa7NIdTZmux-26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="E0krjkNLjYa7NIdTZmux-27">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="605" y="1510" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-23" connectable="0" parent="E0krjkNLjYa7NIdTZmux-22" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=15;fontFamily=Verdana;" value="No" vertex="1">
-          <mxGeometry relative="1" x="-0.2667" y="1" as="geometry">
-            <mxPoint x="-1" y="9" as="offset" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-24" edge="1" parent="1" source="E0krjkNLjYa7NIdTZmux-26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="E0krjkNLjYa7NIdTZmux-29" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-25" connectable="0" parent="E0krjkNLjYa7NIdTZmux-24" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=15;fontFamily=Verdana;" value="Yes" vertex="1">
-          <mxGeometry relative="1" x="-0.0118" y="-1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-26" parent="1" style="rhombus;whiteSpace=wrap;html=1;fontSize=13;fontFamily=Verdana;" value="&lt;span style=&quot;&quot;&gt;Ask AI：&lt;/span&gt;&lt;br style=&quot;&quot;&gt;&lt;span data-pm-slice=&quot;1 1 [&amp;quot;para&amp;quot;,{&amp;quot;tagName&amp;quot;:&amp;quot;section&amp;quot;,&amp;quot;attributes&amp;quot;:{&amp;quot;data-layout-id&amp;quot;:&amp;quot;1&amp;quot;,&amp;quot;style&amp;quot;:&amp;quot;font-size: 17px; font-weight: 400; color: rgba(0,0,0,0.9); line-height: 1.8; margin-bottom: 24px&amp;quot;},&amp;quot;namespaceURI&amp;quot;:&amp;quot;http://www.w3.org/1999/xhtml&amp;quot;}]&quot; style=&quot;&quot;&gt;&quot;Send the user a message now?&quot;&lt;/span&gt;" vertex="1">
-          <mxGeometry height="100" width="260" x="475" y="1220" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-27" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Verdana;" value="&lt;span style=&quot;font-size: 15px;&quot;&gt;Set next wake time&lt;/span&gt;" vertex="1">
-          <mxGeometry height="60" width="260" x="475" y="1490" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-28" edge="1" parent="1" source="E0krjkNLjYa7NIdTZmux-29" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="E0krjkNLjYa7NIdTZmux-27">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-29" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Verdana;fontSize=15;" value="AI sends a message" vertex="1">
-          <mxGeometry height="55" width="140" x="827" y="1242.5" as="geometry" />
-        </mxCell>
-        <mxCell id="E0krjkNLjYa7NIdTZmux-30" edge="1" parent="1" source="E0krjkNLjYa7NIdTZmux-27" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=-0.002;entryY=0.408;entryDx=0;entryDy=0;entryPerimeter=0;" target="E0krjkNLjYa7NIdTZmux-19">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
