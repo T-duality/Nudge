@@ -17,7 +17,9 @@
 
 ### 具体实现方式
 
-![Nudge 流程图](images/Nudeg流程图.png)
+<p align="center">
+  <img src="images/Nudeg流程图.png" alt="Nudge 流程图" width="70%">
+</p>
 
 用 cron job 唤醒 AI，询问：“你现在想给用户发个消息吗？”AI 可以根据最近上下文、当前时间、用户状态、打扰风险和自己的“表达欲”判断：
 如果想发，就生成一条主动消息并发送；然后让 AI 修改下一次醒来时间；
