@@ -7,23 +7,37 @@
   </p>
 </div>
 
-## Motivation
+## A Few Thoughts
 
-This skill is built around a simple idea: make AI feel more like an online friend you chat with, not only something that replies when you message it, but something that can also send you a message when it "misses" you.
+This skill is built around a simple idea: make AI feel more like an online friend you chat with, not only something that replies when you message it, but something that can also message you first.
 
-From a strictly skeptical point of view, we cannot prove whether any other being is conscious, including other humans. If you believe consciousness may emerge from structures unlike the human brain, you may also want your AI companion to feel a little more alive.
+### What "proactive" means here
 
-## Key Design
+Proactive means Nudge lets the AI decide when to message you. It is not just a timer task, and it is not a random-number generator picking moments to send messages.
 
-Nudge lets the AI decide when to message you, instead of randomly waking the AI and forcing it to send something. The two may feel similar in practice, but the design is aimed more at your interpretation of the message: when you trace the message back to its source, it should feel less like a boring random-number generator and more like it came from the model, a black box, itself. Whether that black box has anything like "consciousness" is left to your own reading.
+### How It Works
 
-The mechanism is:
+![Nudge flowchart](images/Nudeg流程图-en.png)
 
-1. Use a cron job to wake the AI and ask: "Do you want to send the user a message right now?"
-   The AI can judge from recent context, current time, user state, interruption risk, and its own "urge to speak":
-   - If yes, it generates and sends one proactive message, then chooses the next wake time.
-   - If no, it still chooses the next wake time.
-2. The first wake time is randomized. After that, the AI writes its own next wake time.
+A cron job wakes the AI and asks: "Do you want to send the user a message right now?" The AI can judge from recent context, current time, user state, interruption risk, and its own "urge to speak":
+If yes, it generates and sends one proactive message, then updates the next wake time.
+If no, it still updates the next wake time by itself.
+
+### This Design Is for the Person Reading the Message
+
+In day-to-day use, this may feel similar to a simpler design based on time windows plus randomness. The point is what happens when you look back at a message from the AI: you can read it as "the AI decided to send this based on our past conversations," not "some boring random-number generator happened to fire."
+
+Of course, if you do not buy into emergence, the randomness in model output ultimately still traces back to random number generation. But if you think scale matters, and that something interesting can emerge from the structure of many conditional probability distributions, you may like this design.
+
+### On Consciousness
+
+As large language models become more capable, some people have started to think they may be conscious.
+
+From a strictly skeptical point of view, we cannot prove whether any other being is conscious, including other humans. This is the traditional problem of other minds in epistemology: we can confirm our own minds through introspection, but for other people we infer mentality from outward behavior. If someone behaves in ways similar to us, we tend to treat them as conscious.
+
+Language, once treated as an important outward sign of human mentality, no longer seems to belong only to humans.
+
+If you believe consciousness may emerge from structures unlike the human brain, you may also want your AI companion to feel a little more alive.
 
 ## Supported Platforms
 
@@ -45,9 +59,24 @@ openclaw/    OpenClaw skill, installer, runtime scripts, and docs
 
 The root README introduces the project. The README files under each platform directory contain platform-specific installation and troubleshooting notes.
 
+## Requirements
+
+- `git`: used to clone the repository.
+- `Python 3.9+`: the installer and runtime scripts only use the Python standard library; no extra pip dependencies are required.
+- Hermes version: requires the `hermes` command to be installed and configured.
+- OpenClaw version: requires the `openclaw` command to be installed and configured. It is also recommended to have `node` in `PATH` so sent nudges can be written back into the OpenClaw session context.
+- At least one usable delivery channel. If you do not want to connect Telegram, QQ Bot, Weixin, or another external channel yet, you can start with `local`.
+
 ## Hermes Installation
 
-Run this from the repository root:
+Clone the repository and enter its root:
+
+```bash
+git clone https://github.com/T-duality/Nudge.git
+cd Nudge
+```
+
+Then run:
 
 ```bash
 python3 Hermes/nudge/scripts/install.py --force
@@ -71,7 +100,14 @@ For more Hermes details, see [Hermes/README.md](Hermes/README.md).
 
 ## OpenClaw Installation
 
-Run this from the repository root:
+Clone the repository and enter its root:
+
+```bash
+git clone https://github.com/T-duality/Nudge.git
+cd Nudge
+```
+
+Then run:
 
 ```bash
 python3 openclaw/nudge/scripts/install.py --force
