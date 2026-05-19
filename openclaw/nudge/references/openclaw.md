@@ -15,11 +15,11 @@ This copies:
 - the skill to `~/.openclaw/skills/nudge`
 - runtime scripts to `~/.openclaw/nudge/scripts`
 - initial state to `~/.openclaw/nudge/state.json`
-- a cron job named `nudge`; if one with that name already exists, the installer updates it with the current schedule, message, channel, tools, and session settings
+- a cron job named `nudge`; if one with that name already exists, the installer updates it with the current schedule, message, tools, and session settings
 - an interactive delivery picker when a TTY is available and `--channel` is left as `auto`
 - interactive language and topic setup when a TTY is available
 
-After a cron create or update, the installer stores the selected delivery target in `~/.openclaw/nudge/state.json` as the OpenClaw session activity source. The gate reads `~/.openclaw/agents/main/sessions/sessions.json`, finds matching non-cron session files, and uses only `message.role=user` timestamps for the recent-activity avoidance rule. Message content is not used for recent-activity checks. When a nudge is sent, `record-decision --decision sent --message ...` also mirrors that nudge into the matching non-cron chat transcript through OpenClaw's transcript append API as a context-visible assistant message, then refreshes the session index freshness fields so the next reply has context. Do not use OpenClaw's `delivery-mirror` or `gateway-injected` model markers for this mirror; the runtime removes those transcript-only messages from replay history.
+After a cron create or update, the installer stores the selected delivery target in `~/.openclaw/nudge/state.json` as the OpenClaw session activity source. It also embeds that target in the cron prompt so the agent sends real nudges with the `message` tool. The cron job itself is created with `--no-deliver`; do not use cron fallback delivery for Nudge because it can deliver blocked command-execution text or other setup errors as chat messages. The gate reads `~/.openclaw/agents/main/sessions/sessions.json`, finds matching non-cron session files, and uses only `message.role=user` timestamps for the recent-activity avoidance rule. Message content is not used for recent-activity checks. When a nudge is sent, `record-decision --decision sent --message ...` also mirrors that nudge into the matching non-cron chat transcript through OpenClaw's transcript append API as a context-visible assistant message, then refreshes the session index freshness fields so the next reply has context. Do not use OpenClaw's `delivery-mirror` or `gateway-injected` model markers for this mirror; the runtime removes those transcript-only messages from replay history.
 
 To install files without activating the background cron job:
 
@@ -84,6 +84,8 @@ python3 openclaw/nudge/scripts/install.py --force --no-create-cron
 
 Repeated installs update the existing `nudge` cron job by default. Use `--no-update-cron` to leave an existing job unchanged, or pass a different `--name` to create another job.
 
+By default the installer passes `--tools '*'` to the OpenClaw cron job. Current OpenClaw Codex cron runs need the full tool surface so the agent can execute the local gate/state scripts and use the `message` tool. A narrower allow-list can prevent the gate command from running and produce a blocked response.
+
 ## Test Without Cron
 
 Initialize state:
@@ -122,3 +124,5 @@ The agent must final-answer exactly `HEARTBEAT_OK`. OpenClaw drops OK-only `HEAR
 The agent must not run `nudge_state.py record-decision` for this gate-silent path; the gate has already decided not to wake, and rescheduling here would keep pushing `next_wake_at` forward.
 
 When due, the gate prints `NUDGE_GATE_CONTEXT` and a JSON payload. It also sets `next_wake_at` to a 30 minute fallback before the agent runs. The agent should overwrite that fallback with an intentional next wake using `nudge_state.py record-decision`.
+
+For chat delivery, the due-path agent must call the `message` tool with the target embedded in the cron prompt. The final answer should still be only the user-facing nudge text. Cron fallback delivery remains disabled.

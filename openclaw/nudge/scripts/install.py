@@ -635,13 +635,34 @@ def configure_preferences(state_script: pathlib.Path, state_path: pathlib.Path, 
         run_checked([sys.executable, str(state_script), "--state", str(state_path), "topic", "set", *topics])
 
 
-def build_prompt(gate_script: pathlib.Path, state_script: pathlib.Path) -> str:
+def message_tool_instruction(delivery: Delivery) -> str:
+    if not delivery.announce or not delivery.channel:
+        return (
+            "No chat delivery target is configured. If sending would otherwise be useful, record "
+            "a silent decision instead and final reply exactly HEARTBEAT_OK."
+        )
+    target_parts = [f"channel={delivery.channel}"]
+    if delivery.to:
+        target_parts.append(f"target={delivery.to}")
+    if delivery.account:
+        target_parts.append(f"account={delivery.account}")
+    if delivery.thread_id:
+        target_parts.append(f"thread_id={delivery.thread_id}")
+    target_text = ", ".join(target_parts)
+    return (
+        f"If sending a nudge, use the message tool and send it to {target_text}. "
+        "Do not rely on cron fallback delivery."
+    )
+
+
+def build_prompt(gate_script: pathlib.Path, state_script: pathlib.Path, delivery: Delivery) -> str:
     return (
         f"Use the nudge skill. First run: python3 {gate_script}. "
         "If the gate JSON has status silent, do not run any other command and final reply exactly HEARTBEAT_OK. "
         "Only if the gate prints NUDGE_GATE_CONTEXT, decide whether to send one short proactive message. "
         f"After a NUDGE_GATE_CONTEXT decision, update state with python3 {state_script} record-decision "
         "--decision sent|silent --next-minutes <minutes>; when sending, include --message with the exact final user-facing nudge text. "
+        f"{message_tool_instruction(delivery)} "
         "Then final reply exactly HEARTBEAT_OK for a due-but-silent decision, or only the user-facing nudge when sending."
     )
 
@@ -707,16 +728,10 @@ def find_cron_job(name: str) -> CronLookup:
 
 
 def add_delivery_cron_args(cmd: list[str], delivery: Delivery) -> None:
-    if not delivery.announce:
-        cmd.append("--no-deliver")
-        return
-    cmd.extend(["--announce", "--channel", delivery.channel])
-    if delivery.to:
-        cmd.extend(["--to", delivery.to])
-    if delivery.account:
-        cmd.extend(["--account", delivery.account])
-    if delivery.thread_id:
-        cmd.extend(["--thread-id", delivery.thread_id])
+    # Nudge sends real messages through the message tool after the gate has
+    # decided a proactive nudge is useful. Cron fallback delivery would also
+    # deliver setup/runtime errors such as blocked command execution text.
+    cmd.append("--no-deliver")
 
 
 def add_optional_cron_args(cmd: list[str], args: argparse.Namespace) -> None:
@@ -857,7 +872,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--topic", action="append", help="Custom topic. Repeat to set multiple topics.")
     parser.add_argument("--model", default="")
     parser.add_argument("--thinking", default="")
-    parser.add_argument("--tools", default="exec,read,write")
+    parser.add_argument(
+        "--tools",
+        default="*",
+        help=(
+            "OpenClaw cron tool allow-list. Defaults to '*' because current "
+            "Codex cron runs need the full tool surface for command execution "
+            "and message delivery."
+        ),
+    )
     parser.add_argument("--force", action="store_true", help="Replace installed skill/runtime files.")
     parser.add_argument("--check", action="store_true", help="Check paths and planned cron action without installing files or editing cron.")
     parser.add_argument("--no-create-cron", action="store_true", help="Install files only; do not create the OpenClaw cron job.")
@@ -877,13 +900,13 @@ def main(argv: list[str] | None = None) -> int:
     state_path = expand(args.state)
     state_script_target = runtime_scripts / "nudge_state.py"
     gate_script_target = runtime_scripts / "nudge_gate.py"
-    prompt = build_prompt(gate_script_target, state_script_target)
     try:
         delivery = choose_delivery(args, no_prompt=args.check)
         language, topics = choose_preferences(args)
     except ValueError as exc:
         print(f"install error: {exc}", file=sys.stderr)
         return 2
+    prompt = build_prompt(gate_script_target, state_script_target, delivery)
     lookup = find_cron_job(args.name)
 
     if args.check:
@@ -904,7 +927,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run_checked([sys.executable, str(state_script), "--state", str(state_path), "init"])
     configure_preferences(state_script, state_path, language, topics)
-    prompt = build_prompt(gate_script, state_script)
+    prompt = build_prompt(gate_script, state_script, delivery)
 
     existing_job = lookup.job
     existing_job_id = existing_job[0] if existing_job else None
