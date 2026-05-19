@@ -20,9 +20,9 @@ python3 openclaw/nudge/scripts/install.py --force
 - 在交互式终端里显示投递平台数字选择菜单
 - 在交互式终端里询问输出语言和话题（topics）；非交互环境默认不改已有偏好
 
-如果已存在同名 cron job，安装脚本会用本次选择的投递渠道、schedule、message、tools 和 session 设置更新它，避免重复；需要多实例时传不同的 `--name`。
+如果已存在同名 cron job，安装脚本会用本次选择的投递目标、schedule、message、tools 和 session 设置更新它，避免重复；需要多实例时传不同的 `--name`。
 
-创建或更新 cron 成功后，安装器会把本次选择的投递目标记录到 `~/.openclaw/nudge/state.json` 的 `activity_source`。gate 会只读 `~/.openclaw/agents/main/sessions/sessions.json` 和匹配的 session JSONL，只使用 `message.role=user` 的时间戳判断最近活动，不读取或使用消息内容。发送 nudge 时，`record-decision --decision sent --message ...` 会尽力用 OpenClaw 的 transcript append API 把这条 nudge 作为上下文可见的 assistant 消息镜像进同一聊天的非 cron 会话记录，并刷新 session 索引里的 freshness 时间，让用户后续回复时 AI 能看到刚刚主动发出的内容。这里不能使用 OpenClaw 的 `delivery-mirror` / `gateway-injected` 标记，因为它们会被运行时当作 transcript-only 消息从 replay history 中移除。
+创建或更新 cron 成功后，安装器会把本次选择的投递目标记录到 `~/.openclaw/nudge/state.json` 的 `activity_source`，也会把投递目标写进 cron prompt，让 agent 在真正决定发送 nudge 时使用 `message` tool 发送。cron job 本身会保持 `--no-deliver`，不要依赖 OpenClaw cron fallback delivery；否则 command-execution 被 blocked 之类的运行错误也可能被当成聊天消息发出去。gate 会只读 `~/.openclaw/agents/main/sessions/sessions.json` 和匹配的 session JSONL，只使用 `message.role=user` 的时间戳判断最近活动，不读取或使用消息内容。发送 nudge 时，`record-decision --decision sent --message ...` 会尽力用 OpenClaw 的 transcript append API 把这条 nudge 作为上下文可见的 assistant 消息镜像进同一聊天的非 cron 会话记录，并刷新 session 索引里的 freshness 时间，让用户后续回复时 AI 能看到刚刚主动发出的内容。这里不能使用 OpenClaw 的 `delivery-mirror` / `gateway-injected` 标记，因为它们会被运行时当作 transcript-only 消息从 replay history 中移除。
 
 安装前可以先做无写入检查：
 
@@ -93,6 +93,8 @@ python3 openclaw/nudge/scripts/install.py --force --channel telegram --to "<chat
 ```bash
 python3 openclaw/nudge/scripts/install.py --force --channel telegram --to "<chat-id>" --thread-id "<topic-id>"
 ```
+
+默认会给 OpenClaw cron 传 `--tools '*'`。当前 OpenClaw Codex cron 运行时需要完整工具面，才能执行本地 gate/state 脚本并调用 `message` tool；只给 `exec,read,write` 这类窄 allow-list 可能导致 agent 收不到命令执行工具，进而回复 blocked。
 
 只保留 OpenClaw 里的 cron 运行结果，不投递到聊天：
 

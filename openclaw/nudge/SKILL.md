@@ -22,6 +22,8 @@ Default state path: `~/.openclaw/nudge/state.json`.
 
 OpenClaw cron does not have a Hermes-style pre-run script hook, so the cron job wakes the agent first. The first agent action must be running the gate script.
 
+The installer disables cron fallback delivery. Real proactive messages must be sent with the `message` tool to the target embedded in the cron prompt. This prevents blocked command-execution output or other setup errors from being delivered as chat messages.
+
 ## Cron Wake Workflow
 
 On every cron wake:
@@ -30,7 +32,7 @@ On every cron wake:
 2. If the gate output has `"status": "silent"`, do not run `nudge_state.py record-decision`; final-answer exactly `HEARTBEAT_OK`.
 3. If the gate prints `NUDGE_GATE_CONTEXT`, decide whether to send one short proactive message.
 4. Before the final answer, run `nudge_state.py record-decision` to set the next wake time; for sent nudges, pass `--message` with the exact final user-facing text.
-5. If sending a nudge, final-answer only the user-facing message.
+5. If sending a nudge, use the configured `message` tool target from the cron prompt, then final-answer only the user-facing message.
 6. If not sending, final-answer exactly `HEARTBEAT_OK`.
 
 OpenClaw strips and drops OK-only `HEARTBEAT_OK` messages, so this is the silent path. Gate-silent ticks have already been handled by the gate and must not reschedule `next_wake_at`.
@@ -92,3 +94,4 @@ python3 ~/.openclaw/nudge/scripts/nudge_state.py record-decision --decision sent
 4. Do not call `record-decision` after a gate-silent response such as `not_due`, `disabled`, `quiet_hours`, or `recent_user_activity`; that would keep pushing the real wake time forward.
 5. Do not rely on OpenClaw cron session memory alone. Use the state file.
 6. Do not store secrets or channel credentials in the nudge state file.
+7. Do not rely on cron fallback delivery for sent nudges; use the `message` tool target embedded in the cron prompt.
